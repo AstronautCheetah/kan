@@ -45,6 +45,10 @@ export const create = async (
     dueDate?: Date | null;
   },
 ) => {
+  // D1 sequential transaction (NOT convertible to db.batch):
+  // Each step depends on the previous — we read the current max index,
+  // conditionally shift existing indices, insert the card, insert an
+  // activity referencing the new card ID, then check/fix duplicate indices.
   return db.transaction(async (tx) => {
     let index = 0;
 
@@ -75,10 +79,10 @@ export const create = async (
     const existingCardAtIndex = await getExistingCardAtIndex();
 
     if (existingCardAtIndex?.id) {
-      await tx.execute(sql`
+      await tx.run(sql`
         UPDATE card
-        SET index = index + 1
-        WHERE "listId" = ${cardInput.listId} AND index >= ${index} AND "deletedAt" IS NULL;
+        SET "index" = "index" + 1
+        WHERE "listId" = ${cardInput.listId} AND "index" >= ${index} AND "deletedAt" IS NULL;
       `);
     }
 
@@ -118,16 +122,17 @@ export const create = async (
 
     if (duplicateIndices.length > 0) {
       // Compact indices for this list to sequential values (0..n-1) preserving order
-      await tx.execute(sql`
-        WITH ordered AS (
-          SELECT id, ROW_NUMBER() OVER (ORDER BY "index", id) - 1 AS new_index
-          FROM "card"
-          WHERE "listId" = ${result[0].listId} AND "deletedAt" IS NULL
+      await tx.run(sql`
+        UPDATE "card"
+        SET "index" = (
+          SELECT new_index FROM (
+            SELECT id, ROW_NUMBER() OVER (ORDER BY "index", id) - 1 AS new_index
+            FROM "card"
+            WHERE "listId" = ${result[0].listId} AND "deletedAt" IS NULL
+          ) AS ordered
+          WHERE ordered.id = "card".id
         )
-        UPDATE "card" c
-        SET "index" = o.new_index
-        FROM ordered o
-        WHERE c.id = o.id;
+        WHERE "listId" = ${result[0].listId} AND "deletedAt" IS NULL;
       `);
 
       // Last resort: verify fix; rollback if duplicates persist
@@ -271,6 +276,11 @@ export const bulkCreate = async (
 ) => {
   if (cardInput.length === 0) return [];
 
+  // D1 sequential transaction (NOT convertible to db.batch):
+  // For each list we SELECT the current max index, then compute sequential
+  // indices for the incoming cards based on that result.  After inserting we
+  // check for duplicate indices and compact if needed — a multi-step
+  // read-then-write chain that requires intermediate results.
   return db.transaction(async (tx) => {
     // Group incoming cards by list to compute safe, sequential indices per list
     const byList = new Map<number, typeof cardInput>();
@@ -329,16 +339,17 @@ export const bulkCreate = async (
         .having(gt(countExpr, 1));
 
       if (duplicateIndices.length > 0) {
-        await tx.execute(sql`
-          WITH ordered AS (
-            SELECT id, ROW_NUMBER() OVER (ORDER BY "index", id) - 1 AS new_index
-            FROM "card"
-            WHERE "listId" = ${listId} AND "deletedAt" IS NULL
+        await tx.run(sql`
+          UPDATE "card"
+          SET "index" = (
+            SELECT new_index FROM (
+              SELECT id, ROW_NUMBER() OVER (ORDER BY "index", id) - 1 AS new_index
+              FROM "card"
+              WHERE "listId" = ${listId} AND "deletedAt" IS NULL
+            ) AS ordered
+            WHERE ordered.id = "card".id
           )
-          UPDATE "card" c
-          SET "index" = o.new_index
-          FROM ordered o
-          WHERE c.id = o.id;
+          WHERE "listId" = ${listId} AND "deletedAt" IS NULL;
         `);
 
         const postFixDupes = await tx
@@ -645,6 +656,11 @@ export const reorder = async (
     cardId: number;
   },
 ) => {
+  // D1 sequential transaction (NOT convertible to db.batch):
+  // We read the card's current list + index, optionally read the target list,
+  // then run conditional index-shift UPDATEs that depend on those values.
+  // Afterwards we check for and repair duplicate indices, then re-read the
+  // updated card — a multi-step dependent chain.
   return db.transaction(async (tx) => {
     const card = await tx.query.cards.findFirst({
       columns: {
@@ -705,33 +721,33 @@ export const reorder = async (
     }
 
     if (currentList.id === newList?.id) {
-      await tx.execute(sql`
+      await tx.run(sql`
         UPDATE card
-        SET index =
+        SET "index" =
           CASE
-            WHEN index = ${currentIndex} THEN ${newIndex}
-            WHEN ${currentIndex} < ${newIndex} AND index > ${currentIndex} AND index <= ${newIndex} THEN index - 1
-            WHEN ${currentIndex} > ${newIndex} AND index >= ${newIndex} AND index < ${currentIndex} THEN index + 1
-            ELSE index
+            WHEN "index" = ${currentIndex} THEN ${newIndex}
+            WHEN ${currentIndex} < ${newIndex} AND "index" > ${currentIndex} AND "index" <= ${newIndex} THEN "index" - 1
+            WHEN ${currentIndex} > ${newIndex} AND "index" >= ${newIndex} AND "index" < ${currentIndex} THEN "index" + 1
+            ELSE "index"
           END
         WHERE "listId" = ${currentList.id} AND "deletedAt" IS NULL;
       `);
     } else {
-      await tx.execute(sql`
+      await tx.run(sql`
         UPDATE card
-        SET index = index + 1
-        WHERE "listId" = ${newList?.id} AND index >= ${newIndex} AND "deletedAt" IS NULL;
+        SET "index" = "index" + 1
+        WHERE "listId" = ${newList?.id} AND "index" >= ${newIndex} AND "deletedAt" IS NULL;
       `);
 
-      await tx.execute(sql`
+      await tx.run(sql`
         UPDATE card
-        SET index = index - 1
-        WHERE "listId" = ${currentList.id} AND index >= ${currentIndex} AND "deletedAt" IS NULL;
+        SET "index" = "index" - 1
+        WHERE "listId" = ${currentList.id} AND "index" >= ${currentIndex} AND "deletedAt" IS NULL;
       `);
 
-      await tx.execute(sql`
+      await tx.run(sql`
         UPDATE card
-        SET "listId" = ${newList?.id}, index = ${newIndex}
+        SET "listId" = ${newList?.id}, "index" = ${newIndex}
         WHERE id = ${card.id} AND "deletedAt" IS NULL;
       `);
     }
@@ -763,29 +779,31 @@ export const reorder = async (
       );
 
       if (affectedListIds.length === 1) {
-        await tx.execute(sql`
-          WITH ordered AS (
-            SELECT id, ROW_NUMBER() OVER (ORDER BY "index", id) - 1 AS new_index
-            FROM "card"
-            WHERE "listId" = ${affectedListIds[0]} AND "deletedAt" IS NULL
+        await tx.run(sql`
+          UPDATE "card"
+          SET "index" = (
+            SELECT new_index FROM (
+              SELECT id, ROW_NUMBER() OVER (ORDER BY "index", id) - 1 AS new_index
+              FROM "card"
+              WHERE "listId" = ${affectedListIds[0]} AND "deletedAt" IS NULL
+            ) AS ordered
+            WHERE ordered.id = "card".id
           )
-          UPDATE "card" c
-          SET "index" = o.new_index
-          FROM ordered o
-          WHERE c.id = o.id;
+          WHERE "listId" = ${affectedListIds[0]} AND "deletedAt" IS NULL;
         `);
       } else if (affectedListIds.length === 2) {
-        await tx.execute(sql`
-          WITH ordered AS (
-            SELECT id,
-                   ROW_NUMBER() OVER (PARTITION BY "listId" ORDER BY "index", id) - 1 AS new_index
-            FROM "card"
-            WHERE "listId" IN (${sql.join(affectedListIds, sql`,`)}) AND "deletedAt" IS NULL
+        await tx.run(sql`
+          UPDATE "card"
+          SET "index" = (
+            SELECT new_index FROM (
+              SELECT id,
+                     ROW_NUMBER() OVER (PARTITION BY "listId" ORDER BY "index", id) - 1 AS new_index
+              FROM "card"
+              WHERE "listId" IN (${sql.join(affectedListIds, sql`,`)}) AND "deletedAt" IS NULL
+            ) AS ordered
+            WHERE ordered.id = "card".id
           )
-          UPDATE "card" c
-          SET "index" = o.new_index
-          FROM ordered o
-          WHERE c.id = o.id;
+          WHERE "listId" IN (${sql.join(affectedListIds, sql`,`)}) AND "deletedAt" IS NULL;
         `);
       }
 
@@ -829,6 +847,9 @@ export const softDelete = async (
     deletedBy: string;
   },
 ) => {
+  // D1 sequential transaction (NOT convertible to db.batch):
+  // We soft-delete the card first, then use its returned listId and index
+  // to shift remaining cards' indices down, then verify no duplicates.
   return db.transaction(async (tx) => {
     const [result] = await tx
       .update(cards)
@@ -843,10 +864,10 @@ export const softDelete = async (
     if (!result)
       throw new Error(`Unable to soft delete card ID ${args.cardId}`);
 
-    await tx.execute(sql`
+    await tx.run(sql`
       UPDATE card
-      SET index = index - 1
-      WHERE "listId" = ${result.listId} AND index > ${result.index} AND "deletedAt" IS NULL;
+      SET "index" = "index" - 1
+      WHERE "listId" = ${result.listId} AND "index" > ${result.index} AND "deletedAt" IS NULL;
     `);
 
     const countExpr = sql<number>`COUNT(*)`.mapWith(Number);

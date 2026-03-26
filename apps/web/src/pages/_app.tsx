@@ -6,7 +6,7 @@ import type { AppProps, AppType } from "next/app";
 import type { ReactElement, ReactNode } from "react";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import Script from "next/script";
-import { env } from "next-runtime-env";
+import { env } from "~/lib/env";
 import { ThemeProvider } from "next-themes";
 import posthog from "posthog-js";
 import { PostHogProvider } from "posthog-js/react";

@@ -55,4 +55,12 @@ i18n.cache
 # pgdata
 /apps/web/pgdata
 
+# cloudflare workers
+.wrangler/
+.dev.vars
+apps/worker/wrangler.toml
+
+# original postgresql migrations (kept locally for reference)
+packages/db/migrations-pg/
+
 .claude

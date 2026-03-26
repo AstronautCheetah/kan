@@ -1,5 +1,7 @@
 ![github-background](https://github.com/user-attachments/assets/f728f52e-bf67-4357-9ba2-c24c437488e3)
 
+> **Cloudflare Workers fork of [Kan](https://github.com/kanbn/kan).** This fork replaces PostgreSQL with D1 (SQLite), S3 with R2, and Node.js with Hono — running entirely on Cloudflare's edge network as a single Worker. See the [original project](https://github.com/kanbn/kan) for the standard Docker/Railway deployment.
+
 <div align="center">
   <h3 align="center">Kan</h3>
   <p>The open-source project management alternative to Trello.</p>
@@ -36,201 +38,287 @@ See our [roadmap](https://kan.bn/kan/roadmap) for upcoming features.
 
 <img width="1507" alt="hero-dark" src="https://github.com/user-attachments/assets/8490104a-cd5d-49de-afc2-152fd8a93119" />
 
-## Made With 🛠️
+## Made With
 
-- [Next.js](https://nextjs.org/?ref=kan.bn)
+- [Next.js](https://nextjs.org/?ref=kan.bn) (static export for frontend)
+- [Hono](https://hono.dev/) (API on Cloudflare Workers)
 - [tRPC](https://trpc.io/?ref=kan.bn)
 - [Better Auth](https://better-auth.com/?ref=kan.bn)
 - [Tailwind CSS](https://tailwindcss.com/?ref=kan.bn)
-- [Drizzle ORM](https://orm.drizzle.team/?ref=kan.bn)
+- [Drizzle ORM](https://orm.drizzle.team/?ref=kan.bn) + [Cloudflare D1](https://developers.cloudflare.com/d1/)
+- [Cloudflare R2](https://developers.cloudflare.com/r2/) (file storage)
 - [React Email](https://react.email/?ref=kan.bn)
 
-## Self Hosting 🐳
+## Self Hosting on Cloudflare Workers
 
-### One-click Deployments
+This fork runs entirely on a single Cloudflare Worker that serves both the static frontend and the API. No containers, no VMs, no PostgreSQL — just Cloudflare's edge network.
 
-The easiest way to deploy Kan is through Railway. We've partnered with Railway to maintain an official template that supports the development of the project.
+| Component | Cloudflare Service | Purpose |
+|-----------|-------------------|---------|
+| Database | D1 (SQLite) | All application data |
+| File storage | R2 | Avatars and attachments |
+| Rate limiting | KV | Optional request throttling |
+| Compute | Workers | API + static site serving |
 
-<a href="https://railway.com/deploy/kan?referralCode=bZPsr2&utm_medium=integration&utm_source=template&utm_campaign=generic">
-  <img src="https://railway.app/button.svg" alt="Deploy on Railway" height="40" />
-</a>
+### Prerequisites
 
-### Docker Compose
+- [Node.js](https://nodejs.org/) >= 20
+- [pnpm](https://pnpm.io/) >= 9.14
+- A [Cloudflare account](https://dash.cloudflare.com/sign-up) (the free tier is sufficient to get started)
 
-Alternatively, you can self-host Kan with Docker Compose. This will set up everything for you including your postgres database and automatically run migrations.
-
-1. Create a `.env` file with your environment variables (see [Environment Variables](#environment-variables-) section below)
-
-2. Use the provided `docker-compose.yml` file or create your own with the following configuration:
-
-```yaml
-services:
-  migrate:
-    image: ghcr.io/kanbn/kan-migrate:latest
-    container_name: kan-migrate
-    networks:
-      - kan-network
-    environment:
-      - POSTGRES_URL=${POSTGRES_URL}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: "no"
-
-  web:
-    image: ghcr.io/kanbn/kan:latest
-    container_name: kan-web
-    ports:
-      - "${WEB_PORT:-3000}:3000"
-    networks:
-      - kan-network
-    env_file:
-      - .env
-    environment:
-      - NEXT_PUBLIC_BASE_URL=${NEXT_PUBLIC_BASE_URL}
-      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
-      - POSTGRES_URL=${POSTGRES_URL}
-      - NEXT_PUBLIC_ALLOW_CREDENTIALS=true
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-    restart: unless-stopped
-
-  postgres:
-    image: postgres:15
-    container_name: kan-db
-    environment:
-      - POSTGRES_DB=kan_db
-      - POSTGRES_USER=kan
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-    ports:
-      - 5432:5432
-    volumes:
-      - kan_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U kan -d kan_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-    networks:
-      - kan-network
-
-networks:
-  kan-network:
-
-volumes:
-  kan_postgres_data:
-```
-
-3. Start the containers in detached mode:
+### 1. Clone and install
 
 ```bash
-docker compose up -d
-```
-
-The `migrate` service will automatically run database migrations before the web service starts. The application will be available at http://localhost:3000 (or the port specified in `WEB_PORT`).
-
-**Managing containers:**
-
-- To stop the containers: `docker compose down`
-- To view logs: `docker compose logs -f`
-- To view logs for a specific service: `docker compose logs -f web` or `docker compose logs -f migrate`
-- To restart the containers: `docker compose restart`
-- To rebuild after code changes: `docker compose up -d --build`
-
-For the complete Docker Compose configuration with all optional features, see [docker-compose.yml](./docker-compose.yml) in the repository.
-
-## Local Development 🧑‍💻
-
-1. Clone the repository (or fork)
-
-```bash
-git clone https://github.com/kanbn/kan.git
-```
-
-2. Install dependencies
-
-```bash
+git clone https://github.com/AstronautCheetah/kan.git
+cd kan
+git checkout cloudflare-workers
 pnpm install
 ```
 
-3. Copy `.env.example` to `.env` and configure your environment variables
-4. Migrate database
+### 2. Create Cloudflare resources
+
+Log in to Wrangler, then create the resources your Worker needs:
 
 ```bash
-pnpm db:migrate
+npx wrangler login
+
+# Database
+npx wrangler d1 create kan-db
+
+# File storage
+npx wrangler r2 bucket create kan-avatars
+npx wrangler r2 bucket create kan-attachments
+
+# Rate limiting (optional)
+npx wrangler kv namespace create RATE_LIMIT
 ```
 
-5. Start the development server
+Each command prints an ID. You'll need these in the next step.
+
+### 3. Configure wrangler.toml
+
+Copy the example and fill in your IDs:
 
 ```bash
-pnpm dev
+cd apps/worker
+cp wrangler.toml.example wrangler.toml
 ```
 
-## Environment Variables 🔐
+Edit `apps/worker/wrangler.toml` and replace the placeholder IDs:
 
-| Variable                                  | Description                                               | Required                              | Example                                                     |
-| ----------------------------------------- | --------------------------------------------------------- | ------------------------------------- | ----------------------------------------------------------- |
-| `POSTGRES_URL`                            | PostgreSQL connection URL                                 | To use external database              | `postgres://user:pass@localhost:5432/db`                    |
-| `REDIS_URL`                               | Redis connection URL                                      | For rate limiting (optional)          | `redis://localhost:6379` or `redis://redis:6379` (Docker)   |
-| `EMAIL_FROM`                              | Sender email address                                      | For Email                             | `"Kan <hello@mail.kan.bn>"`                                 |
-| `SMTP_HOST`                               | SMTP server hostname                                      | For Email                             | `smtp.resend.com`                                           |
-| `SMTP_PORT`                               | SMTP server port                                          | For Email                             | `465`                                                       |
-| `SMTP_USER`                               | SMTP username/email                                       | No                                    | `resend`                                                    |
-| `SMTP_PASSWORD`                           | SMTP password/token                                       | No                                    | `re_xxxx`                                                   |
-| `SMTP_SECURE`                             | Use secure SMTP connection (defaults to true if not set)  | For Email                             | `true`                                                      |
-| `SMTP_REJECT_UNAUTHORIZED`                | Reject invalid certificates (defaults to true if not set) | For Email                             | `false`                                                     |
-| `NEXT_PUBLIC_DISABLE_EMAIL`               | To disable all email features                             | For Email                             | `true`                                                      |
-| `NEXT_PUBLIC_BASE_URL`                    | Base URL of your installation                             | Yes                                   | `http://localhost:3000`                                     |
-| `NEXT_API_BODY_SIZE_LIMIT`                | Maximum API request body size (defaults to 1mb)           | No                                    | `50mb`                                                      |
-| `BETTER_AUTH_ALLOWED_DOMAINS`             | Comma-separated list of allowed domains for OIDC logins   | For OIDC/Social login                 | `example.com,subsidiary.com`                                |
-| `BETTER_AUTH_SECRET`                      | Auth encryption secret                                    | Yes                                   | Random 32+ char string                                      |
-| `BETTER_AUTH_TRUSTED_ORIGINS`             | Allowed callback origins                                  | No                                    | `http://localhost:3000,http://localhost:3001`               |
-| `GOOGLE_CLIENT_ID`                        | Google OAuth client ID                                    | For Google login                      | `xxx.apps.googleusercontent.com`                            |
-| `GOOGLE_CLIENT_SECRET`                    | Google OAuth client secret                                | For Google login                      | `xxx`                                                       |
-| `DISCORD_CLIENT_ID`                       | Discord OAuth client ID                                   | For Discord login                     | `xxx`                                                       |
-| `DISCORD_CLIENT_SECRET`                   | Discord OAuth client secret                               | For Discord login                     | `xxx`                                                       |
-| `GITHUB_CLIENT_ID`                        | GitHub OAuth client ID                                    | For GitHub login                      | `xxx`                                                       |
-| `GITHUB_CLIENT_SECRET`                    | GitHub OAuth client secret                                | For GitHub login                      | `xxx`                                                       |
-| `OIDC_CLIENT_ID`                          | Generic OIDC client ID                                    | For OIDC login                        | `xxx`                                                       |
-| `OIDC_CLIENT_SECRET`                      | Generic OIDC client secret                                | For OIDC login                        | `xxx`                                                       |
-| `OIDC_DISCOVERY_URL`                      | OIDC discovery URL                                        | For OIDC login                        | `https://auth.example.com/.well-known/openid-configuration` |
-| `TRELLO_APP_API_KEY`                      | Trello app API key                                        | For Trello import                     | `xxx`                                                       |
-| `TRELLO_APP_API_SECRET`                   | Trello app API secret                                     | For Trello import                     | `xxx`                                                       |
-| `S3_REGION`                               | S3 storage region                                         | For file uploads                      | `WEUR`                                                      |
-| `S3_ENDPOINT`                             | S3 endpoint URL                                           | For file uploads                      | `https://xxx.r2.cloudflarestorage.com`                      |
-| `S3_ACCESS_KEY_ID`                        | S3 access key                                             | For file uploads (optional with IRSA) | `xxx`                                                       |
-| `S3_SECRET_ACCESS_KEY`                    | S3 secret key                                             | For file uploads (optional with IRSA) | `xxx`                                                       |
-| `S3_FORCE_PATH_STYLE`                     | Use path-style URLs for S3                                | For file uploads                      | `true`                                                      |
-| `S3_AVATAR_UPLOAD_LIMIT`                  | Maximum avatar file size in bytes                         | For file uploads                      | `2097152` (2MB)                                             |
-| `NEXT_PUBLIC_STORAGE_URL`                 | Storage service URL                                       | For file uploads                      | `https://storage.kanbn.com`                                 |
-| `NEXT_PUBLIC_STORAGE_DOMAIN`              | Storage domain name                                       | For file uploads                      | `kanbn.com`                                                 |
-| `NEXT_PUBLIC_USE_VIRTUAL_HOSTED_URLS`     | Use virtual-hosted style URLs (bucket.domain.com)         | For file uploads (optional)           | `true`                                                      |
-| `NEXT_PUBLIC_AVATAR_BUCKET_NAME`          | S3 bucket name for avatars                                | For file uploads                      | `avatars`                                                   |
-| `NEXT_PUBLIC_ATTACHMENTS_BUCKET_NAME`     | S3 bucket name for attachments                            | For file uploads                      | `attachments`                                               |
-| `NEXT_PUBLIC_ALLOW_CREDENTIALS`           | Allow email & password login                              | For authentication                    | `true`                                                      |
-| `NEXT_PUBLIC_DISABLE_SIGN_UP`             | Disable sign up                                           | For authentication                    | `false`                                                     |
-| `NEXT_PUBLIC_WHITE_LABEL_HIDE_POWERED_BY` | Hide “Powered by kan.bn” on public boards (self-host)     | For white labelling                   | `true`                                                      |
-| `KAN_ADMIN_API_KEY`                       | Admin API key for stats and admin endpoints               | For admin/monitoring                  | `your-secret-admin-key`                                     |
-| `LOG_LEVEL`                               | Log verbosity level (debug, info, warn, error)            | No (defaults to debug in dev, info in prod) | `info`                                                 |
+```toml
+[[d1_databases]]
+binding = “DB”
+database_name = “kan-db”
+database_id = “<your-database-id>”       # from `wrangler d1 create`
 
-See `.env.example` for a complete list of supported environment variables.
+[[kv_namespaces]]
+binding = “RATE_LIMIT”
+id = “<your-kv-id>”                      # from `wrangler kv namespace create`
+```
 
-## Contributing 🤝
+The R2 bucket names (`kan-avatars`, `kan-attachments`) don't need IDs — just matching names.
 
-We welcome contributions! Please read our [contribution guidelines](CONTRIBUTING.md) before submitting a pull request.
+### 4. Set secrets
 
-## Contributors 👥
+Secrets are encrypted values stored by Cloudflare, never committed to git:
 
-<a href="https://github.com/kanbn/kan/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=kanbn/kan" />
+```bash
+cd apps/worker
+
+# Required — auth encryption key (random 32+ character string)
+npx wrangler secret put BETTER_AUTH_SECRET
+
+# Required — data encryption key (random 32+ character string)
+npx wrangler secret put ENCRYPTION_KEY
+```
+
+Optional secrets for additional features:
+
+```bash
+# Email (Resend API — https://resend.com)
+npx wrangler secret put EMAIL_API_KEY
+npx wrangler secret put EMAIL_FROM
+
+# Google OAuth
+npx wrangler secret put GOOGLE_CLIENT_ID
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+
+# Stripe payments
+npx wrangler secret put STRIPE_SECRET_KEY
+npx wrangler secret put STRIPE_WEBHOOK_SECRET
+npx wrangler secret put STRIPE_PRO_PLAN_MONTHLY_PRICE_ID
+
+# See “Environment Variables” section below for all options
+```
+
+Non-secret configuration goes in the `[vars]` section of `wrangler.toml`:
+
+```toml
+[vars]
+BASE_URL = “https://your-domain.com”
+NEXT_PUBLIC_BASE_URL = “https://your-domain.com”
+NEXT_PUBLIC_ALLOW_CREDENTIALS = “true”
+```
+
+### 5. Apply database migrations
+
+From the repo root:
+
+```bash
+# Apply to your remote D1 database
+pnpm db:migrate:remote
+
+# Or for local development
+pnpm db:migrate:local
+```
+
+Migrations are generated by [Drizzle Kit](https://orm.drizzle.team/docs/migrations) and applied via Wrangler's `d1 migrations apply`, which tracks what's been applied automatically.
+
+If you later modify the schema, generate a new migration then apply it:
+
+```bash
+cd packages/db
+npx drizzle-kit generate
+cd ../..
+pnpm db:migrate:remote
+```
+
+### 6. Build the frontend
+
+`NEXT_PUBLIC_*` variables are baked into the static export at build time:
+
+```bash
+cd apps/web
+
+NEXT_PUBLIC_BASE_URL=https://your-domain.com \
+NEXT_PUBLIC_ALLOW_CREDENTIALS=true \
+BETTER_AUTH_SECRET=any-value-here \  # build-time stub; the real secret is set via `wrangler secret put`
+pnpm build
+```
+
+This produces `apps/web/out/` which the Worker serves as static assets.
+
+### 7. Deploy
+
+```bash
+cd apps/worker
+npx wrangler deploy
+```
+
+Your app is live at `https://kan.<your-subdomain>.workers.dev`.
+
+### Custom domain
+
+Option A — add to `wrangler.toml`:
+
+```toml
+routes = [
+  { pattern = “kan.yourdomain.com”, custom_domain = true }
+]
+```
+
+Option B — configure in the [Cloudflare dashboard](https://dash.cloudflare.com/) under Workers & Pages > your worker > Settings > Domains & Routes.
+
+After adding a custom domain, update `BASE_URL` and `NEXT_PUBLIC_BASE_URL` in `[vars]` and rebuild the frontend.
+
+### Local development
+
+```bash
+# Build the frontend first (only needed once, or after frontend changes)
+cd apps/web && pnpm build
+
+# Apply migrations to local D1 (from the repo root)
+pnpm db:migrate:local
+
+# Start the Worker locally
+cd apps/worker
+cp .dev.vars.example .dev.vars  # Edit with your local secrets
+npx wrangler dev
+```
+
+This starts a local Worker at `http://localhost:8787` with simulated D1, R2, and KV.
+
+### Updating from upstream
+
+This fork tracks [kanbn/kan](https://github.com/kanbn/kan). To pull in new features:
+
+```bash
+git fetch upstream
+git merge upstream/main
+# Resolve any conflicts (see MERGE_STRATEGY.md for guidance)
+```
+
+See [MERGE_STRATEGY.md](./MERGE_STRATEGY.md) for details on which files conflict and how to resolve them.
+
+---
+
+> **Looking for Docker or Railway?** The original [kanbn/kan](https://github.com/kanbn/kan) project supports Docker Compose and one-click Railway deployment with PostgreSQL. This fork replaces PostgreSQL with D1 and is designed exclusively for Cloudflare Workers.
+
+## Environment Variables
+
+Variables are set in `apps/worker/wrangler.toml` under `[vars]` (non-secret) or via `wrangler secret put` (secret). For local development, use `apps/worker/.dev.vars`.
+
+### Required
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `BETTER_AUTH_SECRET` | Auth encryption secret (secret) | Random 32+ char string |
+| `ENCRYPTION_KEY` | Data encryption key (secret) | Random 32+ char string |
+| `BASE_URL` | Base URL of your deployment | `https://kan.yourdomain.com` |
+| `NEXT_PUBLIC_BASE_URL` | Same as BASE_URL (used at frontend build time) | `https://kan.yourdomain.com` |
+| `NEXT_PUBLIC_ALLOW_CREDENTIALS` | Enable email & password login | `true` |
+
+### Email (Resend API)
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `EMAIL_API_KEY` | Resend API key (secret) | `re_xxxx` |
+| `EMAIL_FROM` | Sender address | `”Kan <noreply@yourdomain.com>”` |
+
+### OAuth providers
+
+| Variable | Description |
+|----------|-------------|
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth |
+| `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` | Discord OAuth |
+| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_DISCOVERY_URL` | Generic OIDC |
+
+### Stripe (optional)
+
+| Variable | Description |
+|----------|-------------|
+| `STRIPE_SECRET_KEY` | Stripe API secret key |
+| `STRIPE_WEBHOOK_SECRET` | Webhook signing secret |
+| `STRIPE_PRO_PLAN_MONTHLY_PRICE_ID` | Price ID for the Pro plan |
+
+### Other
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `BETTER_AUTH_TRUSTED_ORIGINS` | Comma-separated allowed callback origins | Base URL |
+| `BETTER_AUTH_ALLOWED_DOMAINS` | Restrict OIDC logins to specific email domains | All domains |
+| `NEXT_PUBLIC_DISABLE_SIGN_UP` | Disable public registration | `false` |
+| `NEXT_PUBLIC_WHITE_LABEL_HIDE_POWERED_BY` | Hide “Powered by kan.bn” on public boards | `false` |
+| `KAN_ADMIN_API_KEY` | Admin API key for stats endpoints | None |
+| `LOG_LEVEL` | Log verbosity (debug, info, warn, error) | `info` |
+| `TRELLO_APP_API_KEY` / `TRELLO_APP_API_SECRET` | For Trello board imports | None |
+
+## Contributing
+
+We welcome contributions! Please read the [contribution guidelines](CONTRIBUTING.md) before submitting a pull request.
+
+## Contributors
+
+<a href=”https://github.com/kanbn/kan/graphs/contributors”>
+  <img src=”https://contrib.rocks/image?repo=kanbn/kan” />
 </a>
 
-## License 📝
+## License
 
 Kan is licensed under the [AGPLv3 license](LICENSE).
 
-## Contact 📧
+## Contact
 
-For support or to get in touch, please email [henry@kan.bn](mailto:henry@kan.bn) or join our [Discord server](https://discord.gg/e6ejRb6CmT).
+For the original Kan project, email [henry@kan.bn](mailto:henry@kan.bn) or join the [Discord server](https://discord.gg/e6ejRb6CmT).

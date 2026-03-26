@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { t } from "@lingui/core/macro";
-import { env } from "next-runtime-env";
+import { env } from "~/lib/env";
 import {
   HiBolt,
   HiChevronDown,

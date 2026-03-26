@@ -28,6 +28,9 @@ export const create = async (
     createdBy: string;
   },
 ) => {
+  // D1 sequential transaction (NOT convertible to db.batch):
+  // We read the current max checklist index for this card, then insert
+  // the new checklist at index + 1 — the insert depends on the read.
   return db.transaction(async (tx) => {
     const card = await tx.query.checklists.findFirst({
       where: and(
@@ -65,6 +68,9 @@ export const createItem = async (
     completed?: boolean;
   },
 ) => {
+  // D1 sequential transaction (NOT convertible to db.batch):
+  // We read the current max item index for this checklist, then insert
+  // the new item at index + 1 — the insert depends on the read.
   return db.transaction(async (tx) => {
     const lastItem = await tx.query.checklistItems.findFirst({
       where: and(
@@ -243,6 +249,10 @@ export const bulkCreate = async (
 ) => {
   if (checklistInput.length === 0) return [];
 
+  // D1 sequential transaction (NOT convertible to db.batch):
+  // For each card we SELECT the current max checklist index, then compute
+  // sequential indices for incoming checklists based on that result.
+  // The insert values depend on the per-card max-index reads.
   return db.transaction(async (tx) => {
     const byCard = groupByKey(checklistInput, "cardId");
 
@@ -295,6 +305,10 @@ export const bulkCreateItems = async (
 ) => {
   if (checklistItemInput.length === 0) return [];
 
+  // D1 sequential transaction (NOT convertible to db.batch):
+  // For each checklist we SELECT the current max item index, then compute
+  // sequential indices for incoming items based on that result.
+  // The insert values depend on the per-checklist max-index reads.
   return db.transaction(async (tx) => {
     const byChecklist = groupByKey(checklistItemInput, "checklistId");
 
@@ -365,6 +379,10 @@ export const reorderItem = async (
     newIndex: number;
   },
 ) => {
+  // D1 sequential transaction (NOT convertible to db.batch):
+  // We read the item's current index and checklistId, then use those
+  // values to shift neighbouring items' indices, then update the item
+  // itself — each step depends on the previous read.
   return db.transaction(async (tx) => {
     const item = await tx.query.checklistItems.findFirst({
       columns: {
@@ -406,21 +424,21 @@ export const reorderItem = async (
     }
 
     if (currentIndex < newIndex) {
-      await tx.execute(sql`
+      await tx.run(sql`
         UPDATE card_checklist_item
-        SET index = index - 1
+        SET "index" = "index" - 1
         WHERE "checklistId" = ${item.checklistId}
-        AND index > ${currentIndex}
-        AND index <= ${newIndex}
+        AND "index" > ${currentIndex}
+        AND "index" <= ${newIndex}
         AND "deletedAt" IS NULL
         `);
     } else {
-      await tx.execute(sql`
+      await tx.run(sql`
         UPDATE card_checklist_item
-        SET index = index + 1
+        SET "index" = "index" + 1
         WHERE "checklistId" = ${item.checklistId}
-        AND index >= ${newIndex}
-        AND index < ${currentIndex}
+        AND "index" >= ${newIndex}
+        AND "index" < ${currentIndex}
         AND "deletedAt" IS NULL
         `);
     }

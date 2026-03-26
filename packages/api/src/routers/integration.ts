@@ -1,20 +1,20 @@
 import { TRPCError } from "@trpc/server";
-import { env } from "next-runtime-env";
 import { z } from "zod";
 
 import * as integrationsRepo from "@kan/db/repository/integration.repo";
 
 import { createTRPCRouter, protectedProcedure } from "../trpc";
+import { encryptToken } from "../utils/encryption";
 
 export const urls = {
   trello: "https://api.trello.com/1",
 };
 
+// Lazy accessor — on Workers, process.env is populated per-request by the
+// polyfill middleware, so module-scope reads would see undefined.
 export const apiKeys = {
-  trello: process.env.TRELLO_APP_API_KEY,
+  get trello() { return process.env.TRELLO_APP_API_KEY; },
 };
-
-import { encryptToken } from "../utils/encryption";
 
 export const integrationRouter = createTRPCRouter({
   saveGitHubToken: protectedProcedure
@@ -29,7 +29,8 @@ export const integrationRouter = createTRPCRouter({
           code: "UNAUTHORIZED",
         });
 
-      const encryptedToken = encryptToken(input.token);
+      const secret = process.env.BETTER_AUTH_SECRET ?? "";
+      const encryptedToken = await encryptToken(input.token, secret);
 
       const expiresAt = new Date();
       expiresAt.setFullYear(expiresAt.getFullYear() + 1);
@@ -204,7 +205,8 @@ export const integrationRouter = createTRPCRouter({
         });
 
       if (input.provider === "trello") {
-        const url = `${urls[input.provider]}/authorize?key=${apiKey}&expiration=never&response_type=token&scope=read&return_url=${env("NEXT_PUBLIC_BASE_URL")}/settings/trello/authorize&callback_method=fragment`;
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "";
+        const url = `${urls[input.provider]}/authorize?key=${apiKey}&expiration=never&response_type=token&scope=read&return_url=${baseUrl}/settings/trello/authorize&callback_method=fragment`;
         return { url };
       }
 

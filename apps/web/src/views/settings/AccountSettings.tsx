@@ -1,5 +1,5 @@
 import { t } from "@lingui/core/macro";
-import { env } from "next-runtime-env";
+import { env } from "~/lib/env";
 
 import Button from "~/components/Button";
 import FeedbackModal from "~/components/FeedbackModal";

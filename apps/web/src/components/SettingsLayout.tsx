@@ -7,7 +7,7 @@ import {
   ListboxOptions,
 } from "@headlessui/react";
 import { t } from "@lingui/core/macro";
-import { env } from "next-runtime-env";
+import { env } from "~/lib/env";
 import { useEffect, useState } from "react";
 import {
   HiChevronDown,

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { t } from "@lingui/core/macro";
 import { keepPreviousData } from "@tanstack/react-query";
-import { env } from "next-runtime-env";
+import { env } from "~/lib/env";
 import { useEffect, useState } from "react";
 import { HiLink, HiOutlineLockClosed } from "react-icons/hi2";
 

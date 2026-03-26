@@ -15,3 +15,4 @@ type RouterOutputs = inferRouterOutputs<AppRouter>;
 
 export { createTRPCContext, appRouter, createCaller, createNextApiContext };
 export type { AppRouter, RouterInputs, RouterOutputs };
+export type { StorageOps } from "./trpc";

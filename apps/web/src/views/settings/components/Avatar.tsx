@@ -1,6 +1,6 @@
 import Image from "next/image";
 import { t } from "@lingui/core/macro";
-import { env } from "next-runtime-env";
+import { env } from "~/lib/env";
 import { useCallback, useRef, useState } from "react";
 import ReactCrop from "react-image-crop";
 

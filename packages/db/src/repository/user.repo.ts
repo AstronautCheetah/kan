@@ -1,5 +1,4 @@
 import { count, desc, eq } from "drizzle-orm";
-import { v4 as uuidv4 } from "uuid";
 
 import type { dbClient } from "@kan/db/client";
 import { apikey, users } from "@kan/db/schema";
@@ -61,7 +60,7 @@ export const create = async (
   const [result] = await db
     .insert(users)
     .values({
-      id: user.id ?? uuidv4(),
+      id: user.id ?? crypto.randomUUID(),
       email: user.email,
       stripeCustomerId: user.stripeCustomerId,
       emailVerified: false,

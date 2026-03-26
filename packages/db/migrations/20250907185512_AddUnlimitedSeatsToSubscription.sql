@@ -1,1 +1,0 @@
-ALTER TABLE "subscription" ADD COLUMN "unlimitedSeats" boolean DEFAULT false NOT NULL;

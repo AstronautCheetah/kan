@@ -2,7 +2,7 @@ import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { t } from "@lingui/core/macro";
 import { useMutation } from "@tanstack/react-query";
-import { env } from "next-runtime-env";
+import { env } from "~/lib/env";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 

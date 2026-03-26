@@ -22,6 +22,10 @@ export const create = async (
     importId?: number;
   },
 ) => {
+  // D1 sequential transaction (NOT convertible to db.batch):
+  // We read the current max index for this board's lists, compute the next
+  // index from that result, insert the new list, then check/fix duplicate
+  // indices — each step depends on the previous.
   return db.transaction(async (tx) => {
     const list = await tx.query.lists.findFirst({
       columns: {
@@ -69,16 +73,17 @@ export const create = async (
 
     if (duplicateIndices.length > 0) {
       // Compact indices to sequential values (0..n-1) to resolve duplicates while preserving order
-      await tx.execute(sql`
-        WITH ordered AS (
-          SELECT id, ROW_NUMBER() OVER (ORDER BY "index", id) - 1 AS new_index
-          FROM "list"
-          WHERE "boardId" = ${result.boardId} AND "deletedAt" IS NULL
+      await tx.run(sql`
+        UPDATE "list"
+        SET "index" = (
+          SELECT new_index FROM (
+            SELECT id, ROW_NUMBER() OVER (ORDER BY "index", id) - 1 AS new_index
+            FROM "list"
+            WHERE "boardId" = ${result.boardId} AND "deletedAt" IS NULL
+          ) AS ordered
+          WHERE ordered.id = "list".id
         )
-        UPDATE "list" l
-        SET "index" = o.new_index
-        FROM ordered o
-        WHERE l.id = o.id;
+        WHERE "boardId" = ${result.boardId} AND "deletedAt" IS NULL;
       `);
 
       // Last resort: verify fix; if duplicates persist (e.g., due to race conditions), rollback
@@ -113,6 +118,11 @@ export const bulkCreate = async (
 ) => {
   if (listInput.length === 0) return [];
 
+  // D1 sequential transaction (NOT convertible to db.batch):
+  // For each board we SELECT the current max index, then compute sequential
+  // indices for incoming lists based on that result.  After inserting we
+  // check for duplicate indices and compact if needed — a multi-step
+  // read-then-write chain that requires intermediate results.
   return db.transaction(async (tx) => {
     // Group incoming rows by board to compute safe, sequential indices per board
     const byBoard = new Map<number, typeof listInput>();
@@ -173,16 +183,17 @@ export const bulkCreate = async (
         .having(gt(countExpr, 1));
 
       if (duplicateIndices.length > 0) {
-        await tx.execute(sql`
-          WITH ordered AS (
-            SELECT id, ROW_NUMBER() OVER (ORDER BY "index", id) - 1 AS new_index
-            FROM "list"
-            WHERE "boardId" = ${boardId} AND "deletedAt" IS NULL
+        await tx.run(sql`
+          UPDATE "list"
+          SET "index" = (
+            SELECT new_index FROM (
+              SELECT id, ROW_NUMBER() OVER (ORDER BY "index", id) - 1 AS new_index
+              FROM "list"
+              WHERE "boardId" = ${boardId} AND "deletedAt" IS NULL
+            ) AS ordered
+            WHERE ordered.id = "list".id
           )
-          UPDATE "list" l
-          SET "index" = o.new_index
-          FROM ordered o
-          WHERE l.id = o.id;
+          WHERE "boardId" = ${boardId} AND "deletedAt" IS NULL;
         `);
 
         // Last resort: verify fix; if duplicates persist (e.g., due to race conditions), rollback
@@ -265,6 +276,10 @@ export const reorder = async (
     newIndex: number;
   },
 ) => {
+  // D1 sequential transaction (NOT convertible to db.batch):
+  // We read the list's current boardId and index, use those values to build
+  // the reorder CASE-WHEN UPDATE, then check/fix duplicate indices and
+  // re-read the updated list — each step depends on the previous.
   return db.transaction(async (tx) => {
     const list = await tx.query.lists.findFirst({
       columns: {
@@ -278,14 +293,14 @@ export const reorder = async (
     if (!list)
       throw new Error(`List not found for public ID ${args.listPublicId}`);
 
-    await tx.execute(sql`
+    await tx.run(sql`
       UPDATE list
-      SET index =
+      SET "index" =
         CASE
-          WHEN index = ${list.index} AND id = ${list.id} THEN ${args.newIndex}
-          WHEN ${list.index} < ${args.newIndex} AND index > ${list.index} AND index <= ${args.newIndex} THEN index - 1
-          WHEN ${list.index} > ${args.newIndex} AND index >= ${args.newIndex} AND index < ${list.index} THEN index + 1
-          ELSE index
+          WHEN "index" = ${list.index} AND id = ${list.id} THEN ${args.newIndex}
+          WHEN ${list.index} < ${args.newIndex} AND "index" > ${list.index} AND "index" <= ${args.newIndex} THEN "index" - 1
+          WHEN ${list.index} > ${args.newIndex} AND "index" >= ${args.newIndex} AND "index" < ${list.index} THEN "index" + 1
+          ELSE "index"
         END
       WHERE "boardId" = ${list.boardId};
     `);
@@ -304,16 +319,17 @@ export const reorder = async (
 
     if (duplicateIndices.length > 0) {
       // Attempt to auto-heal by compacting indices to sequential values (0..n-1) while preserving order
-      await tx.execute(sql`
-        WITH ordered AS (
-          SELECT id, ROW_NUMBER() OVER (ORDER BY "index", id) - 1 AS new_index
-          FROM "list"
-          WHERE "boardId" = ${list.boardId} AND "deletedAt" IS NULL
+      await tx.run(sql`
+        UPDATE "list"
+        SET "index" = (
+          SELECT new_index FROM (
+            SELECT id, ROW_NUMBER() OVER (ORDER BY "index", id) - 1 AS new_index
+            FROM "list"
+            WHERE "boardId" = ${list.boardId} AND "deletedAt" IS NULL
+          ) AS ordered
+          WHERE ordered.id = "list".id
         )
-        UPDATE "list" l
-        SET "index" = o.new_index
-        FROM ordered o
-        WHERE l.id = o.id;
+        WHERE "boardId" = ${list.boardId} AND "deletedAt" IS NULL;
       `);
 
       // Last resort verification: if duplicates persist, rollback
@@ -370,6 +386,9 @@ export const softDeleteById = async (
     deletedBy: string;
   },
 ) => {
+  // D1 sequential transaction (NOT convertible to db.batch):
+  // We soft-delete the list first, then use its returned boardId and index
+  // to shift remaining lists' indices down, then verify no duplicates.
   return db.transaction(async (tx) => {
     const [result] = await tx
       .update(lists)
@@ -384,10 +403,10 @@ export const softDeleteById = async (
     if (!result)
       throw new Error(`Unable to soft delete list ID ${args.listId}`);
 
-    await tx.execute(sql`
+    await tx.run(sql`
       UPDATE list
-      SET index = index - 1
-      WHERE "boardId" = ${result.boardId} AND index > ${result.index} AND "deletedAt" IS NULL;
+      SET "index" = "index" - 1
+      WHERE "boardId" = ${result.boardId} AND "index" > ${result.index} AND "deletedAt" IS NULL;
     `);
 
     const countExpr = sql<number>`COUNT(*)`.mapWith(Number);

@@ -56,7 +56,7 @@ export const userRouter = createTRPCRouter({
       const apiKey = result.apiKeys[0];
 
       // Generate presigned URL for avatar
-      const imageUrl = await generateAvatarUrl(result.image);
+      const imageUrl = generateAvatarUrl(result.image);
 
       return {
         ...result,
@@ -107,7 +107,7 @@ export const userRouter = createTRPCRouter({
       }
 
       // Generate presigned URL for avatar
-      const imageUrl = await generateAvatarUrl(result.image);
+      const imageUrl = generateAvatarUrl(result.image);
 
       return {
         ...result,

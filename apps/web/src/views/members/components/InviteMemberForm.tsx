@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { t } from "@lingui/core/macro";
-import { env } from "next-runtime-env";
+import { env } from "~/lib/env";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import {

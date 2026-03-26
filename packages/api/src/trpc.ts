@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import type { CreateNextContextOptions } from "@trpc/server/adapters/next";
 import type { NextApiRequest } from "next";
 import type { OpenApiMeta } from "trpc-to-openapi";
@@ -8,8 +7,7 @@ import superjson from "superjson";
 import { ZodError } from "zod";
 
 import type { dbClient } from "@kan/db/client";
-import { initAuth } from "@kan/auth/server";
-import { createDrizzleClient } from "@kan/db/client";
+import type { initAuth } from "@kan/auth/server";
 import { createLogger } from "@kan/logger";
 
 const log = createLogger("api");
@@ -46,33 +44,32 @@ export interface User {
   stripeCustomerId?: string | null | undefined;
 }
 
-const createAuthWithHeaders = (
-  auth: ReturnType<typeof initAuth>,
-  headers: Headers,
-) => {
-  return {
-    api: {
-      getSession: () => auth.api.getSession({ headers }),
-      signInMagicLink: (input: { email: string; callbackURL: string }) =>
-        auth.api.signInMagicLink({
-          headers,
-          body: { email: input.email, callbackURL: input.callbackURL },
-        }),
-      listActiveSubscriptions: (input: { workspacePublicId: string }) =>
-        auth.api.listActiveSubscriptions({
-          headers,
-          query: { referenceId: input.workspacePublicId },
-        }),
-    },
+/** Shape of the auth API subset exposed to tRPC context. */
+export interface AuthApi {
+  api: {
+    getSession: () => ReturnType<ReturnType<typeof initAuth>["api"]["getSession"]>;
+    signInMagicLink: (input: {
+      email: string;
+      callbackURL: string;
+    }) => ReturnType<ReturnType<typeof initAuth>["api"]["signInMagicLink"]>;
+    listActiveSubscriptions: (input: {
+      workspacePublicId: string;
+    }) => ReturnType<ReturnType<typeof initAuth>["api"]["listActiveSubscriptions"]>;
   };
-};
+}
+
+/** Storage operations passed from the Worker for R2 access. */
+export interface StorageOps {
+  deleteAttachment?: (key: string) => Promise<void>;
+}
 
 interface CreateContextOptions {
   user: User | null | undefined;
   db: dbClient;
-  auth: ReturnType<typeof createAuthWithHeaders>;
+  auth: AuthApi;
   headers: Headers;
   transport?: "trpc" | "rest";
+  storage?: StorageOps;
 }
 
 export const createInnerTRPCContext = (opts: CreateContextOptions) => {
@@ -82,62 +79,41 @@ export const createInnerTRPCContext = (opts: CreateContextOptions) => {
     auth: opts.auth,
     headers: opts.headers,
     transport: opts.transport ?? "trpc",
-    requestId: randomUUID(),
+    storage: opts.storage,
+    requestId: crypto.randomUUID(),
   };
 };
 
-export const createTRPCContext = async ({ req }: CreateNextContextOptions) => {
-  const db = createDrizzleClient();
-  const baseAuth = initAuth(db);
-  const headers = new Headers(req.headers as Record<string, string>);
-  const auth = createAuthWithHeaders(baseAuth, headers);
-
-  const session = await auth.api.getSession();
-
+// These context creators are used by the Next.js API routes (dead code on Workers).
+// On Workers, context is created directly in apps/worker/src/index.ts.
+// They preserve the return type for tRPC type inference but throw at runtime.
+// Stub context creators — dead code on Workers. Kept for tRPC type inference.
+export const createTRPCContext = (_opts: CreateNextContextOptions) => {
   return createInnerTRPCContext({
-    db,
-    user: session?.user,
-    auth,
-    headers,
+    db: undefined as unknown as dbClient,
+    user: undefined,
+    auth: undefined as unknown as AuthApi,
+    headers: new Headers(),
     transport: "trpc",
   });
 };
 
-export const createNextApiContext = async (req: NextApiRequest) => {
-  const db = createDrizzleClient();
-  const baseAuth = initAuth(db);
-  const headers = new Headers(req.headers as Record<string, string>);
-  const auth = createAuthWithHeaders(baseAuth, headers);
-
-  const session = await auth.api.getSession();
-
+export const createNextApiContext = (_req: NextApiRequest) => {
   return createInnerTRPCContext({
-    db,
-    user: session?.user,
-    auth,
-    headers,
+    db: undefined as unknown as dbClient,
+    user: undefined,
+    auth: undefined as unknown as AuthApi,
+    headers: new Headers(),
     transport: "trpc",
   });
 };
 
-export const createRESTContext = async ({ req }: CreateNextContextOptions) => {
-  const db = createDrizzleClient();
-  const baseAuth = initAuth(db);
-  const headers = new Headers(req.headers as Record<string, string>);
-  const auth = createAuthWithHeaders(baseAuth, headers);
-
-  let session;
-  try {
-    session = await auth.api.getSession();
-  } catch (error) {
-    log.warn({ err: error }, "Failed to get session, treating as unauthenticated");
-  }
-
+export const createRESTContext = (_opts: CreateNextContextOptions) => {
   return createInnerTRPCContext({
-    db,
-    user: session?.user,
-    auth,
-    headers,
+    db: undefined as unknown as dbClient,
+    user: undefined,
+    auth: undefined as unknown as AuthApi,
+    headers: new Headers(),
     transport: "rest",
   });
 };

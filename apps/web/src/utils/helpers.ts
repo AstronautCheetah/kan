@@ -46,9 +46,16 @@ export const formatMemberDisplayName = (
 export const getAvatarUrl = (imageOrKey: string | null) => {
   if (!imageOrKey) return "";
 
+  // Full URL (external OAuth avatar or presigned URL from backend)
   if (imageOrKey.startsWith("http://") || imageOrKey.startsWith("https://")) {
     return imageOrKey;
   }
 
-  return "";
+  // Already a Worker-served path
+  if (imageOrKey.startsWith("/api/avatar/")) {
+    return imageOrKey;
+  }
+
+  // Raw R2 key — construct the Worker-served path
+  return `/api/avatar/${imageOrKey}`;
 };

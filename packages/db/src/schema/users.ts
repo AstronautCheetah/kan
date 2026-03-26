@@ -1,11 +1,9 @@
-import { relations, sql } from "drizzle-orm";
+import { relations } from "drizzle-orm";
 import {
-  boolean,
-  pgTable,
-  timestamp,
-  uuid,
-  varchar,
-} from "drizzle-orm/pg-core";
+  integer,
+  sqliteTable,
+  text,
+} from "drizzle-orm/sqlite-core";
 
 import { apikey } from "./auth";
 import { boards, userBoardFavorites } from "./boards";
@@ -15,19 +13,19 @@ import { lists } from "./lists";
 import { workspaceMembers, workspaces } from "./workspaces";
 import { integrations } from "./integrations";
 
-export const users = pgTable("user", {
-  id: uuid("id")
+export const users = sqliteTable("user", {
+  id: text("id")
     .notNull()
     .primaryKey()
-    .default(sql`uuid_generate_v4()`),
-  name: varchar("name", { length: 255 }),
-  email: varchar("email", { length: 255 }).notNull().unique(),
-  emailVerified: boolean("emailVerified").notNull(),
-  image: varchar("image", { length: 255 }),
-  createdAt: timestamp("createdAt").notNull().defaultNow(),
-  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
-  stripeCustomerId: varchar("stripeCustomerId", { length: 255 }),
-}).enableRLS();
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text("name"),
+  email: text("email").notNull().unique(),
+  emailVerified: integer("emailVerified", { mode: "boolean" }).notNull(),
+  image: text("image"),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  stripeCustomerId: text("stripeCustomerId"),
+});
 
 export const usersRelations = relations(users, ({ many }) => ({
   deletedBoards: many(boards, {

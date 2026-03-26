@@ -92,7 +92,7 @@ export const workspaceRouter = createTRPCRouter({
             return member;
           }
 
-          const avatarUrl = await generateAvatarUrl(member.user.image);
+          const avatarUrl = generateAvatarUrl(member.user.image);
           return {
             ...member,
             user: {

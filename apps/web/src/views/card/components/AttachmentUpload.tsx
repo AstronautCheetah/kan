@@ -7,7 +7,7 @@ import { twMerge } from "tailwind-merge";
 import Button from "~/components/Button";
 import { useModal } from "~/providers/modal";
 import { usePopup } from "~/providers/popup";
-import { env } from "next-runtime-env";
+import { env } from "~/lib/env";
 import { api } from "~/utils/api";
 import { invalidateCard } from "~/utils/cardInvalidation";
 

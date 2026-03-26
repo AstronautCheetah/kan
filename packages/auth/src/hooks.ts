@@ -1,14 +1,9 @@
-import { PutObjectCommand } from "@aws-sdk/client-s3";
-import { ChatOrPushProviderEnum } from "@novu/api/models/components";
 import { createAuthMiddleware } from "better-auth/api";
-import { env } from "next-runtime-env";
 
 import type { dbClient } from "@kan/db/client";
 import * as memberRepo from "@kan/db/repository/member.repo";
 import * as userRepo from "@kan/db/repository/user.repo";
-import { notificationClient } from "@kan/email";
 import { createLogger } from "@kan/logger";
-import { createEmailUnsubscribeLink, createS3Client } from "@kan/shared";
 
 const log = createLogger("auth");
 
@@ -25,7 +20,24 @@ type BetterAuthUser = {
   stripeCustomerId?: string | null | undefined;
 } & Record<string, unknown>;
 
-export function createDatabaseHooks(db: dbClient) {
+/**
+ * Upload an avatar image to storage.
+ * Accepts the raw bytes and returns the storage key.
+ */
+export type AvatarUploader = (
+  key: string,
+  body: Uint8Array,
+  contentType: string,
+) => Promise<void>;
+
+export interface DatabaseHooksOptions {
+  env: (key: string) => string | undefined;
+  avatarUploader?: AvatarUploader;
+}
+
+export function createDatabaseHooks(db: dbClient, options: DatabaseHooksOptions) {
+  const { env, avatarUploader } = options;
+
   return {
     user: {
       create: {
@@ -40,11 +52,9 @@ export function createDatabaseHooks(db: dbClient) {
             if (!pendingInvitation) {
               return Promise.resolve(false);
             }
-
-            // Fall through to any additional checks below
           }
           // Enforce allowed domains (OIDC/social) if configured
-          const allowed = process.env.BETTER_AUTH_ALLOWED_DOMAINS?.split(",")
+          const allowed = env("BETTER_AUTH_ALLOWED_DOMAINS")?.split(",")
             .map((d) => d.trim().toLowerCase())
             .filter(Boolean);
           if (allowed && allowed.length > 0) {
@@ -56,90 +66,27 @@ export function createDatabaseHooks(db: dbClient) {
           return Promise.resolve(true);
         },
         async after(user: BetterAuthUser, _context: unknown) {
-          let avatarKey = user.image;
-          const storageDomain = process.env.NEXT_PUBLIC_STORAGE_DOMAIN;
-          if (
-            user.image &&
-            storageDomain &&
-            !user.image.includes(storageDomain)
-          ) {
+          // Re-upload social provider avatar to our own storage
+          if (user.image && avatarUploader) {
             try {
-              const client = createS3Client();
-
               const allowedFileExtensions = ["jpg", "jpeg", "png", "webp"];
-
               const fileExtension =
                 user.image.split(".").pop()?.split("?")[0] ?? "jpg";
-              const key = `${user.id}/avatar.${!allowedFileExtensions.includes(fileExtension) ? "jpg" : fileExtension}`;
+              const ext = allowedFileExtensions.includes(fileExtension)
+                ? fileExtension
+                : "jpg";
+              const key = `${user.id}/avatar.${ext}`;
+              const contentType = `image/${ext === "jpg" ? "jpeg" : ext}`;
 
               const imageBuffer = await downloadImage(user.image);
 
-              await client.send(
-                new PutObjectCommand({
-                  Bucket: env("NEXT_PUBLIC_AVATAR_BUCKET_NAME") ?? "",
-                  Key: key,
-                  Body: imageBuffer,
-                  ContentType: `image/${!allowedFileExtensions.includes(fileExtension) ? "jpeg" : fileExtension}`,
-                  ACL: "public-read",
-                }),
-              );
+              await avatarUploader(key, imageBuffer, contentType);
 
-              avatarKey = key;
+              await userRepo.update(db, user.id, { image: key });
 
-              await userRepo.update(db, user.id, {
-                image: key,
-              });
+              log.info({ userId: user.id, key }, "Social avatar re-uploaded to storage");
             } catch (error) {
-              console.error(error);
-            }
-          }
-
-          if (notificationClient) {
-            try {
-              const [firstName, ...rest] = (user.name || "")
-                .split(" ")
-                .filter(Boolean);
-              const lastName = rest.length ? rest.join(" ") : undefined;
-              const avatarUrl = avatarKey
-                ? `${env("NEXT_PUBLIC_STORAGE_URL")}/${env("NEXT_PUBLIC_AVATAR_BUCKET_NAME")}/${avatarKey}`
-                : undefined;
-
-              const unsubscribeUrl = await createEmailUnsubscribeLink(user.id);
-
-              log.info({ workflowId: "user-signup", userId: user.id, email: user.email }, "Triggering Novu workflow");
-              await notificationClient.trigger({
-                to: {
-                  subscriberId: user.id,
-                  firstName: firstName,
-                  lastName: lastName,
-                  email: user.email,
-                  avatar: avatarUrl,
-                  data: {
-                    emailVerified: user.emailVerified,
-                    stripeCustomerId: user.stripeCustomerId,
-                    createdAt: user.createdAt,
-                    updatedAt: user.updatedAt,
-                  },
-                },
-                payload: {
-                  emailUnsubscribeUrl: unsubscribeUrl,
-                },
-                workflowId: "user-signup",
-              });
-              log.info({ workflowId: "user-signup", userId: user.id }, "Novu workflow triggered");
-
-              await notificationClient.subscribers.credentials.update(
-                {
-                  providerId: ChatOrPushProviderEnum.Discord,
-                  credentials: {
-                    webhookUrl: env("DISCORD_WEBHOOK_URL"),
-                  },
-                  integrationIdentifier: "discord",
-                },
-                user.id,
-              );
-            } catch (error) {
-              log.error({ err: error }, "Error adding user to notification client");
+              log.error({ err: error, userId: user.id }, "Failed to re-upload social avatar");
             }
           }
         },
@@ -148,7 +95,7 @@ export function createDatabaseHooks(db: dbClient) {
   };
 }
 
-export function createMiddlewareHooks(db: dbClient) {
+export function createMiddlewareHooks(db: dbClient, _env: (key: string) => string | undefined) {
   return {
     after: createAuthMiddleware(async (ctx) => {
       if (

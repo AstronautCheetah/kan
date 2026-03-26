@@ -1,53 +1,80 @@
-import crypto from "crypto";
+// Web Crypto API implementation — works in both Node.js 20+ and Cloudflare Workers
 
-const ALGORITHM = "aes-256-gcm";
-const SECRET_KEY = process.env.BETTER_AUTH_SECRET;
+let cachedKey: CryptoKey | null = null;
+let cachedSecret: string | null = null;
 
-if (!SECRET_KEY) {
-  throw new Error("Encryption key is missing. Set BETTER_AUTH_SECRET.");
+async function getKey(secret: string): Promise<CryptoKey> {
+  if (cachedKey && cachedSecret === secret) return cachedKey;
+
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.digest(
+    "SHA-256",
+    encoder.encode(secret),
+  );
+
+  cachedKey = await crypto.subtle.importKey(
+    "raw",
+    keyMaterial,
+    { name: "AES-GCM" },
+    false,
+    ["encrypt", "decrypt"],
+  );
+  cachedSecret = secret;
+
+  return cachedKey;
 }
 
-// Ensure the key is exactly 32 bytes
-const key = crypto.createHash("sha256").update(String(SECRET_KEY)).digest();
+function toBase64Url(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (const b of bytes) {
+    binary += String.fromCharCode(b);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
 
-export const encryptToken = (text: string) => {
-  const iv = crypto.randomBytes(12); // 12 bytes is the recommended IV size for GCM
-  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+function fromBase64Url(str: string): Uint8Array {
+  const base64 = str.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
 
-  // buffer concat is faster/cleaner for raw binary manipulation
-  const encrypted = Buffer.concat([
-    cipher.update(text, "utf8"),
-    cipher.final(),
-  ]);
+export const encryptToken = async (text: string, secret: string): Promise<string> => {
+  const key = await getKey(secret);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoder = new TextEncoder();
 
-  const authTag = cipher.getAuthTag();
+  const encrypted = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    encoder.encode(text),
+  );
 
-  // Combine IV + AuthTag + EncryptedData into one buffer
-  // This saves space compared to storing them as separate hex strings
-  const combined = Buffer.concat([iv, authTag, encrypted]);
+  // AES-GCM in Web Crypto appends the auth tag to the ciphertext
+  // Combined: IV (12 bytes) + Ciphertext+AuthTag
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv);
+  combined.set(new Uint8Array(encrypted), iv.length);
 
-  // Return as URL-safe Base64 (ideal for cookies)
-  return combined.toString("base64url");
+  return toBase64Url(combined.buffer);
 };
 
-export const decryptToken = (text: string) => {
-  // Convert URL-safe Base64 back to a Buffer
-  const combined = Buffer.from(text, "base64url");
+export const decryptToken = async (text: string, secret: string): Promise<string> => {
+  const key = await getKey(secret);
+  const combined = fromBase64Url(text);
 
-  // Extract the parts based on fixed lengths
-  // IV is 12 bytes (standard for GCM)
-  // AuthTag is 16 bytes (standard for GCM)
-  const iv = combined.subarray(0, 12);
-  const authTag = combined.subarray(12, 28);
-  const encryptedText = combined.subarray(28);
+  const iv = combined.slice(0, 12);
+  const ciphertext = combined.slice(12); // Includes auth tag
 
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(authTag);
+  const decrypted = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    key,
+    ciphertext,
+  );
 
-  // If the cookie was tampered with, this will throw an error
-  const decrypted = Buffer.concat([
-    decipher.update(encryptedText),
-    decipher.final(),
-  ]);
-  return decrypted.toString("utf8");
+  return new TextDecoder().decode(decrypted);
 };

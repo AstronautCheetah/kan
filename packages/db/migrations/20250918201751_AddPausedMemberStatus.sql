@@ -1,1 +1,0 @@
-ALTER TYPE "public"."member_status" ADD VALUE 'paused';

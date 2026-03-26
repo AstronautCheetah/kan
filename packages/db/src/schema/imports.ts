@@ -1,12 +1,9 @@
 import { relations } from "drizzle-orm";
 import {
-  bigserial,
-  pgEnum,
-  pgTable,
-  timestamp,
-  uuid,
-  varchar,
-} from "drizzle-orm/pg-core";
+  integer,
+  sqliteTable,
+  text,
+} from "drizzle-orm/sqlite-core";
 
 import { boards } from "./boards";
 import { cards } from "./cards";
@@ -14,23 +11,22 @@ import { labels } from "./labels";
 import { lists } from "./lists";
 import { users } from "./users";
 
-export const importSourceEnum = pgEnum("source", ["trello", "github"]);
-export const importStatusEnum = pgEnum("status", [
-  "started",
-  "success",
-  "failed",
-]);
+export const importSources = ["trello", "github"] as const;
+export type ImportSource = (typeof importSources)[number];
 
-export const imports = pgTable("import", {
-  id: bigserial("id", { mode: "number" }).primaryKey(),
-  publicId: varchar("publicId", { length: 12 }).notNull().unique(),
-  source: importSourceEnum("source").notNull(),
-  status: importStatusEnum("status").notNull(),
-  createdBy: uuid("createdBy").references(() => users.id, {
+export const importStatuses = ["started", "success", "failed"] as const;
+export type ImportStatus = (typeof importStatuses)[number];
+
+export const imports = sqliteTable("import", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  publicId: text("publicId").notNull().unique(),
+  source: text("source", { enum: importSources }).notNull(),
+  status: text("status", { enum: importStatuses }).notNull(),
+  createdBy: text("createdBy").references(() => users.id, {
     onDelete: "set null",
   }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-}).enableRLS();
+  createdAt: integer("createdAt", { mode: "timestamp" }).$defaultFn(() => new Date()).notNull(),
+});
 
 export const importsRelations = relations(imports, ({ one, many }) => ({
   createdBy: one(users, {

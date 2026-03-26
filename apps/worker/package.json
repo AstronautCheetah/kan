@@ -1,0 +1,30 @@
+{
+  "name": "@kan/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@kan/api": "workspace:*",
+    "@kan/auth": "workspace:*",
+    "@kan/db": "workspace:*",
+    "@kan/email": "workspace:^",
+    "@kan/logger": "workspace:^",
+    "@kan/shared": "workspace:^",
+    "@kan/stripe": "workspace:^",
+    "@trpc/server": "catalog:",
+    "drizzle-orm": "^0.42.0",
+    "hono": "^4.7.0",
+    "superjson": "2.2.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250313.0",
+    "@kan/tsconfig": "workspace:*",
+    "typescript": "catalog:",
+    "wrangler": "^4.14.0"
+  }
+}

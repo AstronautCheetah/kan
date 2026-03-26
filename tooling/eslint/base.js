@@ -8,6 +8,49 @@ import turboPlugin from "eslint-plugin-turbo";
 import tseslint from "typescript-eslint";
 
 /**
+ * D1 compatibility — flag patterns that use SQL transactions.
+ *
+ * Cloudflare D1 rejects SQL-level BEGIN / COMMIT / SAVEPOINT statements.
+ * Drizzle's `db.transaction()` emits these under the hood, so any call
+ * site will crash at runtime on D1.  The Worker patches this out via
+ * `createD1Drizzle()`, but new code should avoid `.transaction()` to
+ * keep intent clear and prevent surprises after upstream merges.
+ *
+ * Use `db.batch()` for multi-statement atomicity on D1, or run
+ * statements sequentially (D1 is single-writer per request).
+ */
+export const restrictD1Transactions = tseslint.config({
+  files: ["**/*.ts", "**/*.tsx"],
+  rules: {
+    "no-restricted-syntax": [
+      "warn",
+      {
+        selector: "CallExpression[callee.property.name='transaction']",
+        message:
+          "D1 rejects SQL BEGIN/COMMIT. The Worker patches .transaction() " +
+          "at runtime (see apps/worker/src/d1-drizzle.ts), but prefer " +
+          "db.batch() or sequential statements for new code.",
+      },
+      {
+        selector:
+          "TemplateLiteral[quasis.0.value.raw=/(?:SET|AND|WHERE|,)\\s+index\\s*[>=<]/]",
+        message:
+          'Unquoted "index" in raw SQL — "index" is a SQLite reserved ' +
+          'keyword. Use "index" (double-quoted) in all raw SQL to avoid ' +
+          "D1 syntax errors.",
+      },
+      {
+        selector:
+          "TemplateLiteral[quasis.0.value.raw=/SET\\s+index\\s*=/]",
+        message:
+          'Unquoted "index" in SET clause — "index" is a SQLite reserved ' +
+          'keyword. Use SET "index" = ... to avoid D1 syntax errors.',
+      },
+    ],
+  },
+});
+
+/**
  * All packages that leverage t3-env should use this rule
  */
 export const restrictEnvAccess = tseslint.config(

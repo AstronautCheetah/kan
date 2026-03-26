@@ -164,7 +164,7 @@ export const boardRouter = createTRPCRouter({
                 return member;
               }
 
-              const avatarUrl = await generateAvatarUrl(member.user.image);
+              const avatarUrl = generateAvatarUrl(member.user.image);
               return {
                 ...member,
                 user: {
@@ -187,7 +187,7 @@ export const boardRouter = createTRPCRouter({
               members: await Promise.all(
                 card.members.map(async (member) => {
                   if (!member.user?.image) return member;
-                  const avatarUrl = await generateAvatarUrl(member.user.image);
+                  const avatarUrl = generateAvatarUrl(member.user.image);
                   return {
                     ...member,
                     user: { ...member.user, image: avatarUrl },

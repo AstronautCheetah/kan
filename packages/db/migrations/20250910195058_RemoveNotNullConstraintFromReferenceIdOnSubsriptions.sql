@@ -1,1 +1,0 @@
-ALTER TABLE "subscription" ALTER COLUMN "referenceId" DROP NOT NULL;

@@ -1,16 +1,9 @@
 import { relations } from "drizzle-orm";
 import {
-  bigint,
-  bigserial,
-  boolean,
   integer,
-  pgEnum,
-  pgTable,
+  sqliteTable,
   text,
-  timestamp,
-  uuid,
-  varchar,
-} from "drizzle-orm/pg-core";
+} from "drizzle-orm/sqlite-core";
 
 import { boards } from "./boards";
 import { workspaceMemberPermissions, workspaceRoles } from "./permissions";
@@ -19,7 +12,6 @@ import { users } from "./users";
 
 export const memberRoles = ["admin", "member", "guest"] as const;
 export type MemberRole = (typeof memberRoles)[number];
-export const memberRoleEnum = pgEnum("role", memberRoles);
 
 export const memberStatuses = [
   "invited",
@@ -28,35 +20,32 @@ export const memberStatuses = [
   "paused",
 ] as const;
 export type MemberStatus = (typeof memberStatuses)[number];
-export const memberStatusEnum = pgEnum("member_status", memberStatuses);
 
 export const slugTypes = ["reserved", "premium"] as const;
 export type SlugType = (typeof slugTypes)[number];
-export const slugTypeEnum = pgEnum("slug_type", slugTypes);
 
 export const workspacePlans = ["free", "pro", "enterprise"] as const;
 export type WorkspacePlan = (typeof workspacePlans)[number];
-export const workspacePlanEnum = pgEnum("workspace_plan", workspacePlans);
 
-export const workspaces = pgTable("workspace", {
-  id: bigserial("id", { mode: "number" }).primaryKey(),
-  publicId: varchar("publicId", { length: 12 }).notNull().unique(),
-  name: varchar("name", { length: 255 }).notNull(),
+export const workspaces = sqliteTable("workspace", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  publicId: text("publicId").notNull().unique(),
+  name: text("name").notNull(),
   description: text("description"),
-  slug: varchar("slug", { length: 255 }).notNull().unique(),
-  plan: workspacePlanEnum("plan").notNull().default("free"),
-  showEmailsToMembers: boolean("showEmailsToMembers").notNull().default(true),
+  slug: text("slug").notNull().unique(),
+  plan: text("plan", { enum: workspacePlans }).notNull().default("free"),
+  showEmailsToMembers: integer("showEmailsToMembers", { mode: "boolean" }).notNull().default(true),
   weekStartDay: integer("weekStartDay").notNull().default(1),
-  createdBy: uuid("createdBy").references(() => users.id, {
+  createdBy: text("createdBy").references(() => users.id, {
     onDelete: "set null",
   }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt"),
-  deletedAt: timestamp("deletedAt"),
-  deletedBy: uuid("deletedBy").references(() => users.id, {
+  createdAt: integer("createdAt", { mode: "timestamp" }).$defaultFn(() => new Date()).notNull(),
+  updatedAt: integer("updatedAt", { mode: "timestamp" }),
+  deletedAt: integer("deletedAt", { mode: "timestamp" }),
+  deletedBy: text("deletedBy").references(() => users.id, {
     onDelete: "set null",
   }),
-}).enableRLS();
+});
 
 export const workspaceRelations = relations(workspaces, ({ one, many }) => ({
   user: one(users, {
@@ -75,29 +64,29 @@ export const workspaceRelations = relations(workspaces, ({ one, many }) => ({
   roles: many(workspaceRoles),
 }));
 
-export const workspaceMembers = pgTable("workspace_members", {
-  id: bigserial("id", { mode: "number" }).primaryKey(),
-  publicId: varchar("publicId", { length: 12 }).notNull().unique(),
-  email: varchar("email", { length: 255 }).notNull(),
-  userId: uuid("userId").references(() => users.id, { onDelete: "set null" }),
-  workspaceId: bigint("workspaceId", { mode: "number" })
+export const workspaceMembers = sqliteTable("workspace_members", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  publicId: text("publicId").notNull().unique(),
+  email: text("email").notNull(),
+  userId: text("userId").references(() => users.id, { onDelete: "set null" }),
+  workspaceId: integer("workspaceId")
     .notNull()
     .references(() => workspaces.id, { onDelete: "cascade" }),
-  createdBy: uuid("createdBy").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt"),
-  deletedAt: timestamp("deletedAt"),
-  deletedBy: uuid("deletedBy").references(() => users.id, {
+  createdBy: text("createdBy").notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).$defaultFn(() => new Date()).notNull(),
+  updatedAt: integer("updatedAt", { mode: "timestamp" }),
+  deletedAt: integer("deletedAt", { mode: "timestamp" }),
+  deletedBy: text("deletedBy").references(() => users.id, {
     onDelete: "set null",
   }),
   // Legacy role enum
-  role: memberRoleEnum("role").notNull(),
-  roleId: bigint("roleId", { mode: "number" }).references(
+  role: text("role", { enum: memberRoles }).notNull(),
+  roleId: integer("roleId").references(
     () => workspaceRoles.id,
     { onDelete: "restrict" },
   ),
-  status: memberStatusEnum("status").default("invited").notNull(),
-}).enableRLS();
+  status: text("status", { enum: memberStatuses }).default("invited").notNull(),
+});
 
 export const workspaceMembersRelations = relations(
   workspaceMembers,
@@ -132,21 +121,21 @@ export const workspaceMemberPermissionsRelations = relations(
   }),
 );
 
-export const slugs = pgTable("workspace_slugs", {
-  slug: varchar("slug", { length: 255 }).notNull().unique(),
-  type: slugTypeEnum("type").notNull(),
+export const slugs = sqliteTable("workspace_slugs", {
+  slug: text("slug").notNull().unique(),
+  type: text("type", { enum: slugTypes }).notNull(),
 });
 
-export const slugChecks = pgTable("workspace_slug_checks", {
-  id: bigserial("id", { mode: "number" }).primaryKey(),
-  slug: varchar("slug", { length: 255 }).notNull(),
-  available: boolean("available").notNull(),
-  reserved: boolean("reserved").notNull(),
-  workspaceId: bigint("workspaceId", { mode: "number" }).references(
+export const slugChecks = sqliteTable("workspace_slug_checks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  slug: text("slug").notNull(),
+  available: integer("available", { mode: "boolean" }).notNull(),
+  reserved: integer("reserved", { mode: "boolean" }).notNull(),
+  workspaceId: integer("workspaceId").references(
     () => workspaces.id,
   ),
-  createdBy: uuid("createdBy").references(() => users.id, {
+  createdBy: text("createdBy").references(() => users.id, {
     onDelete: "set null",
   }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-}).enableRLS();
+  createdAt: integer("createdAt", { mode: "timestamp" }).$defaultFn(() => new Date()).notNull(),
+});

@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { t } from "@lingui/core/macro";
-import { env } from "next-runtime-env";
+import { env } from "~/lib/env";
 import { HiLink } from "react-icons/hi";
 
 import { Tooltip } from "~/components/Tooltip";

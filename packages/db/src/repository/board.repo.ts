@@ -778,6 +778,13 @@ export const createFromSnapshot = async (
     sourceBoardId?: number;
   },
 ) => {
+  // D1 sequential transaction (NOT convertible to db.batch):
+  // This is a deeply dependent chain: we create the board, then insert
+  // labels (mapping source publicId → new DB id), then insert lists
+  // (mapping index → new DB id), then for each list insert cards using
+  // the new list IDs, create card-label joins using the label ID map,
+  // and create checklists/items using new card/checklist IDs.  Every
+  // step needs IDs produced by a previous insert.
   return db.transaction(async (tx) => {
     const [newBoard] = await tx
       .insert(boards)

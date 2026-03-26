@@ -43,21 +43,17 @@
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.3.7",
     "@kan/logger": "workspace:^",
     "@kan/shared": "workspace:^",
     "drizzle-orm": "^0.42.0",
     "drizzle-zod": "^0.5.1",
-    "ioredis": "^5.9.2",
-    "pg": "^8.11.3",
-    "uuid": "^11.1.0",
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250313.0",
     "@kan/eslint-config": "workspace:*",
     "@kan/prettier-config": "workspace:*",
     "@kan/tsconfig": "workspace:*",
-    "@types/pg": "^8.10.9",
     "dotenv-cli": "^7.4.4",
     "drizzle-kit": "^0.28.1",
     "eslint": "catalog:",

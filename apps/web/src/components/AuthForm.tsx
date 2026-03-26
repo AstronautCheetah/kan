@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useQuery } from "@tanstack/react-query";
-import { env } from "next-runtime-env";
+import { env } from "~/lib/env";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import {

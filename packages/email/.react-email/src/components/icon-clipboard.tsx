@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { IconBase, IconElement, IconProps } from './icon-base';
+import type { IconElement, IconProps } from './icon-base';
+import { IconBase } from './icon-base';
 
 export const IconClipboard = React.forwardRef<IconElement, Readonly<IconProps>>(
   ({ ...props }, forwardedRef) => (

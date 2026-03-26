@@ -546,7 +546,8 @@ export const importRouter = createTRPCRouter({
             code: "UNAUTHORIZED",
           });
 
-        const token = decryptToken(integration.accessToken);
+        const secret = process.env.BETTER_AUTH_SECRET ?? "";
+        const token = await decryptToken(integration.accessToken, secret);
 
         // GraphQL query to fetch Projects V2 for the user and their organizations
         const query = `
@@ -652,7 +653,8 @@ export const importRouter = createTRPCRouter({
             message: "GitHub token not found",
           });
 
-        const token = decryptToken(integration.accessToken);
+        const secret = process.env.BETTER_AUTH_SECRET ?? "";
+        const token = await decryptToken(integration.accessToken, secret);
 
         const workspace = await workspaceRepo.getByPublicId(
           ctx.db,

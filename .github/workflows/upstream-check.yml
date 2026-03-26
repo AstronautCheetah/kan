@@ -1,0 +1,69 @@
+name: Upstream Merge Check
+
+on:
+  schedule:
+    # Every Monday at 6:00 UTC
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  check-upstream-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/kanbn/kan.git
+
+      - name: Fetch upstream main
+        run: git fetch upstream main
+
+      - name: Show new upstream commits
+        run: |
+          COMMIT_COUNT=$(git rev-list HEAD..upstream/main --count)
+          echo "### Upstream has $COMMIT_COUNT new commit(s) since last merge" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COMMIT_COUNT" -eq 0 ]; then
+            echo "Already up to date with upstream/main."
+            echo "Already up to date." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo ""
+            echo "New commits from upstream:"
+            git log HEAD..upstream/main --oneline
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            git log HEAD..upstream/main --oneline >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Attempt merge (dry run)
+        run: |
+          # Configure git identity for the merge attempt
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          if git merge --no-commit --no-ff upstream/main; then
+            echo "Merge is clean -- no conflicts detected."
+            echo "### Result: Clean merge" >> "$GITHUB_STEP_SUMMARY"
+            # Abort the uncommitted merge so we leave the workspace clean
+            git merge --abort 2>/dev/null || true
+          else
+            echo ""
+            echo "========================================="
+            echo "  MERGE CONFLICTS DETECTED"
+            echo "========================================="
+            echo ""
+            echo "The following files have conflicts:"
+            git diff --name-only --diff-filter=U
+            echo ""
+            echo "### Result: CONFLICTS" >> "$GITHUB_STEP_SUMMARY"
+            echo "The following files have merge conflicts:" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            git diff --name-only --diff-filter=U >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            # Clean up
+            git merge --abort 2>/dev/null || true
+            exit 1
+          fi

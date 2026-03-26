@@ -1,3 +1,5 @@
+> **Note:** This is the Cloudflare Workers fork. Development uses `pnpm dev:worker` and `wrangler dev` instead of Docker. See the [README](README.md) for setup instructions.
+
 # Contributing to Kan
 
 Thank you for your interest in contributing to Kan! This document provides guidelines and instructions for contributing to the project.

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { env } from "next-runtime-env";
+import { env } from "~/lib/env";
 
 export function middleware(request: NextRequest) {
   if (request.nextUrl.pathname === "/") {

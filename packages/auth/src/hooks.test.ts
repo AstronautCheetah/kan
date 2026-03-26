@@ -1,9 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("next-runtime-env", () => ({
-  env: vi.fn(),
-}));
-
 vi.mock("@kan/db/repository/member.repo", () => ({
   getByEmailAndStatus: vi.fn(),
   getByPublicId: vi.fn(),
@@ -14,28 +10,9 @@ vi.mock("@kan/db/repository/user.repo", () => ({
   update: vi.fn(),
 }));
 
-vi.mock("@kan/email", () => ({
-  notificationClient: null,
-}));
-
-vi.mock("@kan/shared", () => ({
-  createEmailUnsubscribeLink: vi.fn(),
-  createS3Client: vi.fn(),
-}));
-
-vi.mock("@aws-sdk/client-s3", () => ({
-  PutObjectCommand: vi.fn(),
-}));
-
-vi.mock("@novu/api/models/components", () => ({
-  ChatOrPushProviderEnum: { Discord: "discord" },
-}));
-
-import { env } from "next-runtime-env";
 import * as memberRepo from "@kan/db/repository/member.repo";
 import { createDatabaseHooks } from "./hooks";
 
-const mockEnv = env as ReturnType<typeof vi.fn>;
 const mockGetByEmailAndStatus =
   memberRepo.getByEmailAndStatus as ReturnType<typeof vi.fn>;
 
@@ -50,39 +27,41 @@ const fakeUser = {
   name: "Test User",
 };
 
-describe("createDatabaseHooks", () => {
-  const hooks = createDatabaseHooks(db);
+// Helper: env record → accessor
+function makeEnv(vars: Record<string, string | undefined> = {}): (key: string) => string | undefined {
+  return (key: string) => vars[key];
+}
 
+describe("createDatabaseHooks", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   describe("user.create.before", () => {
     it("allows sign-up when DISABLE_SIGN_UP is not set", async () => {
-      mockEnv.mockReturnValue(undefined);
-
-      const result = await hooks.user.create.before(fakeUser, {});
+      const h = createDatabaseHooks(db, { env: makeEnv() });
+      const result = await h.user.create.before(fakeUser, {});
       expect(result).toBe(true);
       expect(mockGetByEmailAndStatus).not.toHaveBeenCalled();
     });
 
     it("allows sign-up when DISABLE_SIGN_UP is false", async () => {
-      mockEnv.mockImplementation((key: string) =>
-        key === "NEXT_PUBLIC_DISABLE_SIGN_UP" ? "false" : undefined,
-      );
+      const h = createDatabaseHooks(db, {
+        env: makeEnv({ NEXT_PUBLIC_DISABLE_SIGN_UP: "false" }),
+      });
 
-      const result = await hooks.user.create.before(fakeUser, {});
+      const result = await h.user.create.before(fakeUser, {});
       expect(result).toBe(true);
       expect(mockGetByEmailAndStatus).not.toHaveBeenCalled();
     });
 
     it("blocks sign-up when disabled and user has no pending invitation", async () => {
-      mockEnv.mockImplementation((key: string) =>
-        key === "NEXT_PUBLIC_DISABLE_SIGN_UP" ? "true" : undefined,
-      );
+      const h = createDatabaseHooks(db, {
+        env: makeEnv({ NEXT_PUBLIC_DISABLE_SIGN_UP: "true" }),
+      });
       mockGetByEmailAndStatus.mockResolvedValue(undefined);
 
-      const result = await hooks.user.create.before(fakeUser, {});
+      const result = await h.user.create.before(fakeUser, {});
       expect(result).toBe(false);
       expect(mockGetByEmailAndStatus).toHaveBeenCalledWith(
         db,
@@ -92,16 +71,16 @@ describe("createDatabaseHooks", () => {
     });
 
     it("allows sign-up when disabled but user has a pending invitation", async () => {
-      mockEnv.mockImplementation((key: string) =>
-        key === "NEXT_PUBLIC_DISABLE_SIGN_UP" ? "true" : undefined,
-      );
+      const h = createDatabaseHooks(db, {
+        env: makeEnv({ NEXT_PUBLIC_DISABLE_SIGN_UP: "true" }),
+      });
       mockGetByEmailAndStatus.mockResolvedValue({
         id: "member-1",
         email: "test@example.com",
         status: "invited",
       });
 
-      const result = await hooks.user.create.before(fakeUser, {});
+      const result = await h.user.create.before(fakeUser, {});
       expect(result).toBe(true);
       expect(mockGetByEmailAndStatus).toHaveBeenCalledWith(
         db,
@@ -111,28 +90,26 @@ describe("createDatabaseHooks", () => {
     });
 
     it("blocks sign-up when disabled and invitation exists but domain is not allowed", async () => {
-      mockEnv.mockImplementation((key: string) =>
-        key === "NEXT_PUBLIC_DISABLE_SIGN_UP" ? "true" : undefined,
-      );
-      process.env.BETTER_AUTH_ALLOWED_DOMAINS = "acme.com";
+      const h = createDatabaseHooks(db, {
+        env: makeEnv({
+          NEXT_PUBLIC_DISABLE_SIGN_UP: "true",
+          BETTER_AUTH_ALLOWED_DOMAINS: "acme.com",
+        }),
+      });
       mockGetByEmailAndStatus.mockResolvedValue({
         id: "member-1",
         email: "test@example.com",
         status: "invited",
       });
 
-      const result = await hooks.user.create.before(fakeUser, {});
+      const result = await h.user.create.before(fakeUser, {});
       expect(result).toBe(false);
-
-      delete process.env.BETTER_AUTH_ALLOWED_DOMAINS;
     });
 
-    // The user.create.before hook fires for ALL sign-up paths including
-    // OIDC/social — verify invite bypass works regardless of auth method.
     it("allows OIDC/social sign-up when disabled but user has a pending invitation", async () => {
-      mockEnv.mockImplementation((key: string) =>
-        key === "NEXT_PUBLIC_DISABLE_SIGN_UP" ? "true" : undefined,
-      );
+      const h = createDatabaseHooks(db, {
+        env: makeEnv({ NEXT_PUBLIC_DISABLE_SIGN_UP: "true" }),
+      });
       const oidcUser = {
         ...fakeUser,
         id: "user-oidc",
@@ -145,7 +122,7 @@ describe("createDatabaseHooks", () => {
         status: "invited",
       });
 
-      const result = await hooks.user.create.before(oidcUser, {});
+      const result = await h.user.create.before(oidcUser, {});
       expect(result).toBe(true);
       expect(mockGetByEmailAndStatus).toHaveBeenCalledWith(
         db,
@@ -155,9 +132,9 @@ describe("createDatabaseHooks", () => {
     });
 
     it("blocks OIDC/social sign-up when disabled and user has no pending invitation", async () => {
-      mockEnv.mockImplementation((key: string) =>
-        key === "NEXT_PUBLIC_DISABLE_SIGN_UP" ? "true" : undefined,
-      );
+      const h = createDatabaseHooks(db, {
+        env: makeEnv({ NEXT_PUBLIC_DISABLE_SIGN_UP: "true" }),
+      });
       const oidcUser = {
         ...fakeUser,
         id: "user-oidc",
@@ -166,7 +143,7 @@ describe("createDatabaseHooks", () => {
       };
       mockGetByEmailAndStatus.mockResolvedValue(undefined);
 
-      const result = await hooks.user.create.before(oidcUser, {});
+      const result = await h.user.create.before(oidcUser, {});
       expect(result).toBe(false);
       expect(mockGetByEmailAndStatus).toHaveBeenCalledWith(
         db,
@@ -176,20 +153,20 @@ describe("createDatabaseHooks", () => {
     });
 
     it("allows sign-up when disabled, invitation exists, and domain is allowed", async () => {
-      mockEnv.mockImplementation((key: string) =>
-        key === "NEXT_PUBLIC_DISABLE_SIGN_UP" ? "true" : undefined,
-      );
-      process.env.BETTER_AUTH_ALLOWED_DOMAINS = "example.com";
+      const h = createDatabaseHooks(db, {
+        env: makeEnv({
+          NEXT_PUBLIC_DISABLE_SIGN_UP: "true",
+          BETTER_AUTH_ALLOWED_DOMAINS: "example.com",
+        }),
+      });
       mockGetByEmailAndStatus.mockResolvedValue({
         id: "member-1",
         email: "test@example.com",
         status: "invited",
       });
 
-      const result = await hooks.user.create.before(fakeUser, {});
+      const result = await h.user.create.before(fakeUser, {});
       expect(result).toBe(true);
-
-      delete process.env.BETTER_AUTH_ALLOWED_DOMAINS;
     });
   });
 });

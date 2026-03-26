@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { Button } from "@headlessui/react";
 import { t } from "@lingui/core/macro";
-import { env } from "next-runtime-env";
+import { env } from "~/lib/env";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import { HiBolt } from "react-icons/hi2";

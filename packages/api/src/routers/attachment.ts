@@ -9,9 +9,11 @@ import { generateUID } from "@kan/shared/utils";
 
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { assertPermission } from "../utils/permissions";
-import { deleteObject, generateUploadUrl } from "@kan/shared/utils";
 
 export const attachmentRouter = createTRPCRouter({
+  // NOTE: generateUploadUrl is not used on Workers — the frontend uploads
+  // directly to POST /api/upload/attachment which writes to R2 and creates
+  // the DB record in one step.  Kept for the REST API (OpenAPI) surface.
   generateUploadUrl: protectedProcedure
     .meta({
       openapi: {
@@ -19,7 +21,7 @@ export const attachmentRouter = createTRPCRouter({
         method: "POST",
         path: "/cards/{cardPublicId}/attachments/upload-url",
         description:
-          "Generates a presigned URL for uploading an attachment to S3",
+          "On Workers, use POST /api/upload/attachment instead. This endpoint is a stub.",
         tags: ["Attachments"],
         protect: true,
       },
@@ -57,7 +59,6 @@ export const attachmentRouter = createTRPCRouter({
         });
       await assertPermission(ctx.db, userId, card.workspaceId, "card:edit");
 
-      // Get workspace publicId
       const workspace = await workspaceRepo.getById(ctx.db, card.workspaceId);
       if (!workspace)
         throw new TRPCError({
@@ -65,28 +66,15 @@ export const attachmentRouter = createTRPCRouter({
           code: "NOT_FOUND",
         });
 
-      const bucket = process.env.NEXT_PUBLIC_ATTACHMENTS_BUCKET_NAME;
-      if (!bucket)
-        throw new TRPCError({
-          message: `Attachments bucket not configured`,
-          code: "INTERNAL_SERVER_ERROR",
-        });
-
-      // Sanitize filename
       const sanitizedFilename = input.filename
         .replace(/[^a-zA-Z0-9._-]/g, "_")
         .substring(0, 200);
 
       const s3Key = `${workspace.publicId}/${input.cardPublicId}/${generateUID()}-${sanitizedFilename}`;
 
-      const url = await generateUploadUrl(
-        bucket,
-        s3Key,
-        input.contentType,
-        3600, // 1 hour
-      );
-
-      return { url, key: s3Key };
+      // On Workers, presigned URLs are not used — return a placeholder.
+      // The frontend should POST directly to /api/upload/attachment.
+      return { url: `/api/upload/attachment?cardPublicId=${input.cardPublicId}`, key: s3Key };
     }),
   confirm: protectedProcedure
     .meta({
@@ -195,13 +183,13 @@ export const attachmentRouter = createTRPCRouter({
       const workspaceId = attachment.card.list.board.workspaceId;
       await assertPermission(ctx.db, userId, workspaceId, "card:edit");
 
-      const bucket = process.env.NEXT_PUBLIC_ATTACHMENTS_BUCKET_NAME;
-      if (bucket) {
+      // Delete from R2 via storage ops passed from the Worker
+      if (ctx.storage?.deleteAttachment) {
         try {
-          await deleteObject(bucket, attachment.s3Key);
+          await ctx.storage.deleteAttachment(attachment.s3Key);
         } catch (error) {
           console.error(
-            `Failed to delete attachment from S3: ${attachment.s3Key}`,
+            `Failed to delete attachment from storage: ${attachment.s3Key}`,
             error,
           );
         }

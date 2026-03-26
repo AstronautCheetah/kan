@@ -1,7 +1,5 @@
-import { HeadBucketCommand } from "@aws-sdk/client-s3";
 import { TRPCError } from "@trpc/server";
 import { sql } from "drizzle-orm";
-import { env } from "next-runtime-env";
 import { z } from "zod";
 
 import type { dbClient } from "@kan/db/client";
@@ -24,39 +22,12 @@ import {
   createTRPCRouter,
   publicProcedure,
 } from "../trpc";
-import { createS3Client } from "@kan/shared/utils";
 
 const checkDatabaseConnection = async (db: dbClient) => {
   try {
-    await db.execute(sql`SELECT 1`);
+    await db.run(sql`SELECT 1`);
     return true;
   } catch {
-    return false;
-  }
-};
-
-const checkS3Connection = async () => {
-  try {
-    // Check if S3 is configured
-    if (
-      !process.env.S3_ENDPOINT ||
-      !process.env.S3_ACCESS_KEY_ID ||
-      !process.env.S3_SECRET_ACCESS_KEY
-    ) {
-      // S3 is optional, so return true if not configured
-      return true;
-    }
-
-    const client = createS3Client();
-    const avatarBucketName = env("NEXT_PUBLIC_AVATAR_BUCKET_NAME");
-    const attachmentsBucketName = env("NEXT_PUBLIC_ATTACHMENTS_BUCKET_NAME");
-
-    await client.send(new HeadBucketCommand({ Bucket: avatarBucketName }));
-    await client.send(new HeadBucketCommand({ Bucket: attachmentsBucketName }));
-
-    return true;
-  } catch (error) {
-    console.error(error);
     return false;
   }
 };
@@ -79,32 +50,18 @@ export const healthRouter = createTRPCRouter({
       z.object({
         status: z.enum(["ok", "error"]),
         database: z.enum(["ok", "error"]).optional(),
-        storage: z.enum(["ok", "error", "not_configured"]).optional(),
+        storage: z.enum(["ok", "not_configured"]).optional(),
       }),
     )
     .query(async ({ ctx }) => {
       const dbHealthy = await checkDatabaseConnection(ctx.db);
-      const s3Healthy = await checkS3Connection();
-      const s3Configured = !!(
-        process.env.S3_ENDPOINT &&
-        process.env.S3_ACCESS_KEY_ID &&
-        process.env.S3_SECRET_ACCESS_KEY
-      );
 
-      const database = dbHealthy ? "ok" : "error";
-      const storage = !s3Configured
-        ? "not_configured"
-        : s3Healthy
-          ? "ok"
-          : "error";
-
-      // Overall status is "ok" only if database is healthy and (storage is not configured or storage is healthy)
-      const status = dbHealthy && (!s3Configured || s3Healthy) ? "ok" : "error";
-
+      // On Workers, storage is always "ok" — R2 bindings are guaranteed by
+      // the runtime.  The old S3 connectivity check has been removed.
       return {
-        status,
-        database,
-        storage,
+        status: dbHealthy ? "ok" : "error",
+        database: dbHealthy ? "ok" : "error",
+        storage: "ok" as const,
       };
     }),
   stats: adminProtectedProcedure
@@ -140,7 +97,6 @@ export const healthRouter = createTRPCRouter({
     )
     .query(async ({ ctx }) => {
       try {
-        // Execute all count queries in parallel
         const [
           usersCount,
           workspacesCount,
@@ -172,7 +128,6 @@ export const healthRouter = createTRPCRouter({
           memberRepo.getActiveCount(ctx.db),
           inviteLinkRepo.getActiveCount(ctx.db),
           importRepo.getCount(ctx.db),
-          memberRepo.getActiveCount(ctx.db),
           cardActivityRepo.getCount(ctx.db),
         ]);
 

@@ -3,11 +3,10 @@ import {
   count,
   desc,
   eq,
-  ilike,
+  like,
   inArray,
   isNull,
   asc,
-  or,
   sql,
 } from "drizzle-orm";
 
@@ -383,17 +382,11 @@ export const searchBoardsAndCards = async (
     .where(
       and(
         eq(boards.workspaceId, workspaceId),
-        // Combine exact and fuzzy matching
-        or(
-          ilike(boards.name, `%${query}%`), // Exact substring match
-          sql`similarity(${boards.name}, ${query}) > 0.2`, // Fuzzy match
-        ),
+        like(boards.name, `%${query}%`),
         isNull(boards.deletedAt),
       ),
     )
     .orderBy(
-      sql`CASE WHEN ${boards.name} ILIKE ${`%${query}%`} THEN 1 ELSE 0 END DESC`,
-      sql`similarity(${boards.name}, ${query}) DESC`,
       desc(boards.updatedAt),
     )
     .limit(Math.ceil(limit * 0.4));
@@ -416,18 +409,13 @@ export const searchBoardsAndCards = async (
     .where(
       and(
         eq(boards.workspaceId, workspaceId),
-        or(
-          ilike(cards.title, searchQuery),
-          sql`similarity(${cards.title}, ${query}) > 0.2`,
-        ),
+        like(cards.title, searchQuery),
         isNull(cards.deletedAt),
         isNull(lists.deletedAt),
         isNull(boards.deletedAt),
       ),
     )
     .orderBy(
-      sql`CASE WHEN ${cards.title} ILIKE ${searchQuery} THEN 1 ELSE 0 END DESC`,
-      sql`similarity(${cards.title}, ${query}) DESC`,
       desc(cards.updatedAt),
     )
     .limit(Math.floor(limit * 0.6));

@@ -695,7 +695,7 @@ export const cardRouter = createTRPCRouter({
       // Generate URLs for all attachments
       const attachmentsWithUrls = await Promise.all(
         result.attachments.map(async (attachment) => {
-          const url = await generateAttachmentUrl(attachment.s3Key);
+          const url = generateAttachmentUrl(attachment.s3Key);
           return {
             publicId: attachment.publicId,
             contentType: attachment.contentType,
@@ -717,7 +717,7 @@ export const cardRouter = createTRPCRouter({
                   return member;
                 }
 
-                const avatarUrl = await generateAvatarUrl(member.user.image);
+                const avatarUrl = generateAvatarUrl(member.user.image);
                 return {
                   ...member,
                   user: {
@@ -816,7 +816,7 @@ export const cardRouter = createTRPCRouter({
 
           // Generate presigned URL for activity user avatar
           if (activity.user?.image) {
-            const userAvatarUrl = await generateAvatarUrl(activity.user.image);
+            const userAvatarUrl = generateAvatarUrl(activity.user.image);
             updatedActivity.user = {
               ...activity.user,
               image: userAvatarUrl,
@@ -825,7 +825,7 @@ export const cardRouter = createTRPCRouter({
 
           // Generate presigned URL for member user avatar (if exists)
           if (activity.member?.user?.image) {
-            const memberAvatarUrl = await generateAvatarUrl(
+            const memberAvatarUrl = generateAvatarUrl(
               activity.member.user.image,
             );
             updatedActivity.member = {

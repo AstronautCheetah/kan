@@ -1,0 +1,16 @@
+# Copy this file to .dev.vars for local development
+# These override [vars] in wrangler.toml during `wrangler dev`
+
+BETTER_AUTH_SECRET=your-random-32-char-secret-here
+ENCRYPTION_KEY=your-random-32-char-encryption-key
+BASE_URL=http://localhost:8787
+NEXT_PUBLIC_BASE_URL=http://localhost:8787
+NEXT_PUBLIC_ALLOW_CREDENTIALS=true
+
+# Optional
+# STRIPE_SECRET_KEY=sk_test_...
+# STRIPE_WEBHOOK_SECRET=whsec_...
+# EMAIL_API_KEY=re_...
+# EMAIL_FROM="Kan <noreply@yourdomain.com>"
+# GOOGLE_CLIENT_ID=...
+# GOOGLE_CLIENT_SECRET=...

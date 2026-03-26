@@ -1,5 +1,5 @@
 import { LayoutGroup, motion } from 'framer-motion';
-import { Language } from 'prism-react-renderer';
+import type { Language } from 'prism-react-renderer';
 import * as React from 'react';
 import { copyTextToClipboard } from '../utils';
 import languageMap from '../utils/language-map';
@@ -29,7 +29,7 @@ export const CodeContainer: React.FC<Readonly<CodeContainerProps>> = ({
   const [isCopied, setIsCopied] = React.useState(false);
 
   const renderDownloadIcon = () => {
-    let value = markups.filter((markup) => markup.language === activeLang);
+    const value = markups.filter((markup) => markup.language === activeLang);
     const file = new File([value[0].content], `email.${value[0].language}`);
     const url = URL.createObjectURL(file);
 

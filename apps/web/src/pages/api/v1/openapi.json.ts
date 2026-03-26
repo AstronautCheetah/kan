@@ -1,11 +1,5 @@
+// Dead code — static export does not serve API routes. OpenAPI spec served by Worker.
 import type { NextApiRequest, NextApiResponse } from "next";
-
-import { openApiDocument } from "@kan/api/openapi";
-import { withRateLimit } from "@kan/api/utils/rateLimit";
-
-export default withRateLimit(
-  { points: 100, duration: 60 },
-  (req: NextApiRequest, res: NextApiResponse) => {
-    res.status(200).send(openApiDocument);
-  },
-);
+export default function handler(_req: NextApiRequest, res: NextApiResponse) {
+  return res.status(404).json({ error: "Not available in static export" });
+}

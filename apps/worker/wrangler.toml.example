@@ -1,0 +1,66 @@
+# Kan — Cloudflare Worker configuration
+# Copy this file to wrangler.toml and fill in your real values.
+#
+#   cp wrangler.toml.example wrangler.toml
+#
+# Then create your D1 database and KV namespace:
+#   wrangler d1 create kan-db
+#   wrangler kv namespace create RATE_LIMIT
+#
+# Paste the resulting IDs below.
+
+name = "kan"
+main = "src/index.ts"
+compatibility_date = "2025-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Shim node:module to avoid createRequire(import.meta.url) crash from better-auth
+[alias]
+"node:module" = "./src/shims/node-module.ts"
+
+# Serve static frontend from same Worker
+# Assets served by Worker with SPA fallback handled in Hono
+# (not_found_handling must be "none" so /__ENV.js and other dynamic
+# routes are handled by the Worker, not swallowed by the SPA fallback)
+[assets]
+directory = "../web/out"
+binding = "ASSETS"
+not_found_handling = "none"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kan-db"
+# Replace with the ID from: wrangler d1 create kan-db
+database_id = "placeholder-replace-with-your-d1-database-id"
+migrations_dir = "../../packages/db/migrations"
+
+[[r2_buckets]]
+binding = "AVATARS_BUCKET"
+bucket_name = "kan-avatars"
+
+[[r2_buckets]]
+binding = "ATTACHMENTS_BUCKET"
+bucket_name = "kan-attachments"
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+# Replace with the ID from: wrangler kv namespace create RATE_LIMIT
+id = "placeholder-replace-with-your-kv-namespace-id"
+
+[vars]
+# Change BASE_URL to your deployed Worker URL for production
+BASE_URL = "http://localhost:8787"
+NEXT_PUBLIC_BASE_URL = "http://localhost:8787"
+NEXT_PUBLIC_ALLOW_CREDENTIALS = "true"
+
+# ── Secrets ──────────────────────────────────────────────────────────
+# Set these via `wrangler secret put <NAME>`:
+#
+# BETTER_AUTH_SECRET    (required) 32+ char random string
+# ENCRYPTION_KEY        (required) 32+ char random string
+# STRIPE_SECRET_KEY     (optional) Stripe secret key
+# STRIPE_WEBHOOK_SECRET (optional) Stripe webhook signing secret
+# EMAIL_API_KEY         (optional) Resend API key for transactional email
+# EMAIL_FROM            (optional) Sender address, e.g. "Kan <hello@example.com>"
+# GOOGLE_CLIENT_ID      (optional) Google OAuth client ID
+# GOOGLE_CLIENT_SECRET  (optional) Google OAuth client secret

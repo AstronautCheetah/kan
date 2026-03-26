@@ -1,5 +1,4 @@
 import { render } from "@react-email/render";
-import nodemailer from "nodemailer";
 import { createLogger } from "@kan/logger";
 
 const log = createLogger("email");
@@ -11,35 +10,13 @@ import ResetPasswordTemplate from "./templates/reset-password";
 
 type Templates = "MAGIC_LINK" | "JOIN_WORKSPACE" | "RESET_PASSWORD" | "MENTION";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- template props vary per template
 const emailTemplates: Record<Templates, React.ComponentType<any>> = {
   MAGIC_LINK: MagicLinkTemplate,
   JOIN_WORKSPACE: JoinWorkspaceTemplate,
   RESET_PASSWORD: ResetPasswordTemplate,
   MENTION: MentionTemplate,
 };
-
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT),
-  secure:
-    process.env.SMTP_SECURE === undefined
-      ? true
-      : process.env.SMTP_SECURE?.toLowerCase() === "true",
-  tls: {
-    // do not fail on invalid certs
-    rejectUnauthorized:
-      process.env.SMTP_REJECT_UNAUTHORIZED === undefined
-        ? true
-        : process.env.SMTP_REJECT_UNAUTHORIZED?.toLowerCase() === "true",
-  },
-  ...(process.env.SMTP_USER &&
-    process.env.SMTP_PASSWORD && {
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASSWORD,
-      },
-    }),
-});
 
 export const sendEmail = async (
   to: string,
@@ -53,21 +30,38 @@ export const sendEmail = async (
 
     const html = await render(<EmailTemplate {...data} />, { pretty: true });
 
-    const options = {
-      from: process.env.EMAIL_FROM,
-      to,
-      subject,
-      html,
-    };
+    const apiKey = process.env.EMAIL_API_KEY;
+    const from = process.env.EMAIL_FROM;
 
-    const response = await transporter.sendMail(options);
-
-    if (!response.accepted.length) {
-      throw new Error(`Failed to send email: ${response.response}`);
+    if (!apiKey) {
+      log.warn({ to, subject, template }, "EMAIL_API_KEY not set, skipping email");
+      return;
     }
 
-    log.info({ to, subject, template, messageId: response.messageId }, "Email sent");
-    return response;
+    // Uses Resend API (https://resend.com/docs/api-reference/emails/send-email)
+    // Can be swapped for any HTTP-based email API (SendGrid, Mailgun, etc.)
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to: [to],
+        subject,
+        html,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`Email API error ${response.status}: ${errorBody}`);
+    }
+
+    const result = await response.json();
+    log.info({ to, subject, template, id: (result as Record<string, unknown>).id }, "Email sent");
+    return result;
   } catch (error) {
     log.error({ err: error, to, from: process.env.EMAIL_FROM, subject, template }, "Email sending failed");
     throw error;

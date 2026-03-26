@@ -1,6 +1,3 @@
-import { Novu } from "@novu/api";
-
-export const notificationClient =
-  process.env.NEXT_PUBLIC_KAN_ENV === "cloud" && process.env.NOVU_API_KEY
-    ? new Novu({ secretKey: process.env.NOVU_API_KEY })
-    : null;
+// Novu notification client — disabled for self-hosted Workers deployment.
+// The original used @novu/api which is cloud-only and not CF Workers compatible.
+export const notificationClient = null;

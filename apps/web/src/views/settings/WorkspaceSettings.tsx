@@ -1,6 +1,6 @@
 import { useRouter } from "next/router";
 import { t } from "@lingui/core/macro";
-import { env } from "next-runtime-env";
+import { env } from "~/lib/env";
 import { useEffect, useState } from "react";
 import { HiBolt } from "react-icons/hi2";
 

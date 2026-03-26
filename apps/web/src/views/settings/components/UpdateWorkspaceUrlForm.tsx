@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { t } from "@lingui/core/macro";
-import { env } from "next-runtime-env";
+import { env } from "~/lib/env";
 import { useForm } from "react-hook-form";
 import { HiCheck, HiMiniStar } from "react-icons/hi2";
 import { z } from "zod";
