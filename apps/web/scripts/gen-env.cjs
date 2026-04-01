@@ -1,7 +1,17 @@
-// Generates out/__ENV.js with NEXT_PUBLIC_* env vars for next-runtime-env
+// Generates out/__ENV.js with NEXT_PUBLIC_* env vars baked in at build time.
+// The build script loads ../../.env via dotenv (`pnpm with-env`), so all
+// NEXT_PUBLIC_* vars from .env are available in process.env here.
 const fs = require("fs");
-const env = Object.fromEntries(
-  Object.entries(process.env).filter(([k]) => k.startsWith("NEXT_PUBLIC_"))
+
+const envVars = {};
+for (const [key, value] of Object.entries(process.env)) {
+  if (key.startsWith("NEXT_PUBLIC_")) {
+    envVars[key] = value;
+  }
+}
+
+fs.writeFileSync(
+  "out/__ENV.js",
+  `window.__ENV = ${JSON.stringify(envVars)};`,
 );
-fs.writeFileSync("out/__ENV.js", "window.__ENV = " + JSON.stringify(env) + ";");
-console.log("Generated out/__ENV.js with keys:", Object.keys(env).join(", "));
+console.log("Generated out/__ENV.js with keys:", Object.keys(envVars).join(", ") || "(none)");
